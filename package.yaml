@@ -1,0 +1,65 @@
+name: cloud-seeder
+version: '0.0.0'
+category: Other
+synopsis: A Haskell implementation of the maintainable code exercise.
+description: A Haskell implementation of the maintainable code exercise.
+maintainer: Alexis King
+
+extra-source-files:
+- package.yaml
+- README.md
+- stack.yaml
+
+ghc-options: -Wall
+default-extensions:
+- DefaultSignatures
+- GADTs
+- GeneralizedNewtypeDeriving
+- LambdaCase
+- OverloadedStrings
+
+library:
+  dependencies:
+  - amazonka
+  - amazonka-cloudformation
+  - amazonka-core
+  - base
+  - containers
+  - lens
+  - monad-logger
+  - mtl
+  - optparse-applicative
+  - text
+  source-dirs: library
+
+executables:
+  cloud-seeder:
+    dependencies:
+    - base
+    - cloud-seeder
+    ghc-options:
+    - -rtsopts
+    - -threaded
+    - -with-rtsopts=-N
+    main: Main.hs
+    source-dirs: executable
+
+tests:
+  cloud-seeder-test-suite:
+    dependencies:
+    - base
+    - bytestring
+    - cloud-seeder
+    - containers
+    - fast-logger
+    - hspec
+    - monad-logger
+    - mtl
+    - text
+    - transformers
+    ghc-options:
+    - -rtsopts
+    - -threaded
+    - -with-rtsopts=-N
+    main: Main.hs
+    source-dirs: test-suite
