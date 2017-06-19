@@ -1,4 +1,4 @@
-import qualified CloudSeeder.Core as CloudSeeder
+import qualified CloudSeeder.Main as CloudSeeder
 
 main :: IO ()
 main = CloudSeeder.mainIO

@@ -12,7 +12,7 @@ import qualified Data.Text as T
 import GHC.Generics (Generic)
 import System.Log.FastLogger (fromLogStr, toLogStr)
 
-import CloudSeeder.Core
+import CloudSeeder.Main
 
 --------------------------------------------------------------------------------
 -- Arguments

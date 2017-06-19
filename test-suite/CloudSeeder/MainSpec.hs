@@ -1,4 +1,4 @@
-module CloudSeeder.CoreSpec where
+module CloudSeeder.MainSpec where
 
 import Control.Exception (evaluate)
 import Control.DeepSeq (force)
@@ -7,7 +7,7 @@ import Data.Function ((&))
 import Data.Functor.Identity (runIdentity)
 import Test.Hspec
 
-import CloudSeeder.Core
+import CloudSeeder.Main
 import CloudSeeder.Test.Stubs
 
 mainTest :: Options -> (((), DeployState), [ByteString])
