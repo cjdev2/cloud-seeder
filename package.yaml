@@ -12,12 +12,25 @@ extra-source-files:
 
 ghc-options: -Wall
 default-extensions:
+- ApplicativeDo
+- ConstraintKinds
 - DefaultSignatures
+- DeriveGeneric
+- ExistentialQuantification
+- FlexibleContexts
+- FlexibleInstances
+- FunctionalDependencies
 - GADTs
 - GeneralizedNewtypeDeriving
 - LambdaCase
+- MultiParamTypeClasses
+- NamedFieldPuns
 - OverloadedStrings
-- DeriveGeneric
+- RankNTypes
+- ScopedTypeVariables
+- StandaloneDeriving
+- TupleSections
+- TypeOperators
 
 library:
   dependencies:
@@ -27,11 +40,16 @@ library:
   - base
   - containers
   - deepseq
+  - exceptions
   - lens
+  - monad-control
   - monad-logger
+  - monad-time
   - mtl
   - optparse-applicative
   - text
+  - transformers
+  - transformers-base
   source-dirs: library
 
 executables:
@@ -49,6 +67,7 @@ executables:
 tests:
   cloud-seeder-test-suite:
     dependencies:
+    - amazonka-cloudformation
     - base
     - bytestring
     - cloud-seeder
@@ -56,6 +75,7 @@ tests:
     - deepseq
     - fast-logger
     - hspec
+    - lens
     - monad-logger
     - mtl
     - text
