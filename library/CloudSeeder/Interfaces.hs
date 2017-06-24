@@ -22,10 +22,11 @@ module CloudSeeder.Interfaces
 
 import Prelude hiding (readFile)
 
+import Control.Concurrent (threadDelay)
 import Control.DeepSeq (NFData)
 import Control.Lens (Traversal', (.~), (^.), (^?), (?~), _Just, only, to)
 import Control.Lens.TH (makeClassy, makeClassyPrisms)
-import Control.Monad (void)
+import Control.Monad (void, unless)
 import Control.Monad.Base (MonadBase, liftBase)
 import Control.Monad.Catch (MonadCatch, MonadThrow)
 import Control.Monad.Error.Lens (throwing)
@@ -44,10 +45,11 @@ import Data.String (IsString)
 import GHC.Generics (Generic)
 import GHC.IO.Exception (IOException(..), IOErrorType(..))
 import Network.AWS (AsError(..), ErrorMessage(..), HasEnv(..), serviceMessage)
-import Network.AWS.CloudFormation.CreateChangeSet (createChangeSet, ccsChangeSetType, ccsParameters, ccsTemplateBody, ccsCapabilities, ccsrsStackId)
+import Network.AWS.CloudFormation.CreateChangeSet (createChangeSet, ccsChangeSetType, ccsParameters, ccsTemplateBody, ccsCapabilities, ccsrsId)
+import Network.AWS.CloudFormation.DescribeChangeSet (describeChangeSet, drsExecutionStatus)
 import Network.AWS.CloudFormation.DescribeStacks (dStackName, dsrsStacks, describeStacks)
 import Network.AWS.CloudFormation.ExecuteChangeSet (executeChangeSet)
-import Network.AWS.CloudFormation.Types (Capability(..), ChangeSetType(..), Output, oOutputKey, oOutputValue, parameter, pParameterKey, pParameterValue, sOutputs)
+import Network.AWS.CloudFormation.Types (Capability(..), ChangeSetType(..), ExecutionStatus(..), Output, oOutputKey, oOutputValue, parameter, pParameterKey, pParameterValue, sOutputs)
 import Options.Applicative (execParser, info, (<**>), helper, fullDesc, progDesc, header)
 import System.Environment (lookupEnv)
 
@@ -56,8 +58,6 @@ import qualified Data.Text.IO as T
 import qualified Control.Exception.Lens as IO
 
 import CloudSeeder.CommandLine
-
-import Debug.Trace
 
 newtype StackName = StackName T.Text
   deriving (Eq, Show, Generic, IsString)
@@ -157,7 +157,7 @@ computeChangeset' (StackName stackName) templateBody params = do
         Just _   -> fail "computeChangeset: describeStacks returned more than one stack"
       response <- send request
       maybe (fail "computeChangeset: createChangeSet did not return a change set id")
-            return (response ^. ccsrsStackId)
+            return (response ^. ccsrsId)
   where
     awsParam (key, val) = parameter
       & pParameterKey ?~ key
@@ -182,9 +182,19 @@ getStackOutputs' (StackName stackName) = do
 
 runChangeSet' :: MonadCloudIO r m => T.Text -> m ()
 runChangeSet' csId = do
-  env <- ask
-  runResourceT . runAWST env $
-    void $ send (executeChangeSet (traceShowId csId))
+    env <- ask
+    waitUntilChangeSetReady env
+    runResourceT . runAWST env $
+      void $ send (executeChangeSet csId)
+  where
+    waitUntilChangeSetReady env = do
+      liftBase $ threadDelay 1000000
+      cs <- runResourceT . runAWST env $
+        send (describeChangeSet csId)
+      execStatus <- case cs ^. drsExecutionStatus of
+        Just x -> return x
+        Nothing -> fail "runChangeSet: change set lacks execution status"
+      unless (execStatus == Available) $ void $ waitUntilChangeSetReady env
 
 instance MonadCloud m => MonadCloud (ExceptT e m)
 instance MonadCloud m => MonadCloud (LoggingT m)
