@@ -1,4 +1,4 @@
-module CloudSeeder.CommandLine
+module Network.CloudSeeder.CommandLine
     ( Command(..)
     , commandParser
     ) where

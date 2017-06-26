@@ -2,7 +2,7 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE UndecidableInstances #-}
 
-module CloudSeeder.Interfaces
+module Network.CloudSeeder.Interfaces
   ( MonadArguments(..)
   , MonadFileSystem(..)
 
@@ -57,7 +57,7 @@ import qualified Data.Text as T
 import qualified Data.Text.IO as T
 import qualified Control.Exception.Lens as IO
 
-import CloudSeeder.CommandLine
+import Network.CloudSeeder.CommandLine
 
 newtype StackName = StackName T.Text
   deriving (Eq, Show, Generic, IsString)

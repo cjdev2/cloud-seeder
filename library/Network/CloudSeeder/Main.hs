@@ -3,7 +3,7 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
 
-module CloudSeeder.Main
+module Network.CloudSeeder.Main
   ( Command(..)
   , StackName(..)
   , CliError(..)
@@ -34,13 +34,9 @@ import Prelude hiding (readFile)
 import qualified Data.Text as T
 import qualified Data.Text.IO as T
 
-import CloudSeeder.CommandLine
-import CloudSeeder.DSL
-import CloudSeeder.Interfaces
-
-import Control.Lens ((<&>), (.~))
-import Network.AWS (LogLevel(Trace), envLogger, newLogger)
-import System.IO (stdout)
+import Network.CloudSeeder.CommandLine
+import Network.CloudSeeder.DSL
+import Network.CloudSeeder.Interfaces
 
 --------------------------------------------------------------------------------
 -- IO wiring
@@ -87,8 +83,7 @@ instance MonadCloud AppM where
 
 runAppM :: AppM a -> IO a
 runAppM (AppM x) = do
-  lgr <- newLogger Trace stdout
-  env <- newEnv Discover <&> envLogger .~ lgr
+  env <- newEnv Discover
   result <- runStderrLoggingT . runExceptT $ runReaderT x env
   either (\err -> T.putStr (renderCliError err) >> exitFailure) return result
 

@@ -1,6 +1,6 @@
 {-# LANGUAGE TemplateHaskell #-}
 
-module CloudSeeder.DSL
+module Network.CloudSeeder.DSL
   ( DeploymentConfiguration(..)
   , StackConfiguration(..)
   , environmentVariables

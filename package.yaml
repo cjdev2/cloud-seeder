@@ -1,11 +1,22 @@
 name: cloud-seeder
-version: '0.0.0'
-category: Other
-synopsis: A Haskell implementation of the maintainable code exercise.
-description: A Haskell implementation of the maintainable code exercise.
-maintainer: Alexis King
+version: 0.0.0.0
+category: Cloud
+synopsis: A tool for interacting with AWS CloudFormation
+description: |
+  This package provides a DSL for creating deployment configurations, as well
+  as an interpreter that reads deployment configurations in order to deploy
+  application stacks to AWS CloudFormation using Amazonka.
+
+copyright: 2017 CJ Affiliate by Conversant
+license: ISC
+license-file: LICENSE
+author: Alexis King <lexi.lambda@gmail.com>, Michael Arnold <michaelaarnold@gmail.com>
+maintainer: Alexis King <lexi.lambda@gmail.com>, Michael Arnold <michaelaarnold@gmail.com>
+github: cjdev/cloud-seeder
 
 extra-source-files:
+- CHANGELOG.md
+- LICENSE
 - package.yaml
 - README.md
 - stack.yaml
@@ -34,19 +45,18 @@ default-extensions:
 
 library:
   dependencies:
-  - amazonka
-  - amazonka-cloudformation
-  - amazonka-core
-  - base
-  - containers
-  - deepseq
-  - exceptions
+  - amazonka >= 1.4.5
+  - amazonka-cloudformation >= 1.4.5
+  - amazonka-core >= 1.4.5
+  - base >= 4.9.0.0 && < 5
+  - deepseq >= 1.4.1.0
+  - exceptions >= 0.8 && < 0.9
   - lens
-  - monad-control
-  - monad-logger
-  - monad-time
+  - monad-control >= 1.0.0.0
+  - monad-logger >= 0.3.13.1
+  - monad-time >= 0.2
   - mtl
-  - optparse-applicative
+  - optparse-applicative >= 0.13.0.0
   - text
   - transformers
   - transformers-base
@@ -67,18 +77,17 @@ executables:
 tests:
   cloud-seeder-test-suite:
     dependencies:
-    - amazonka-cloudformation
-    - base
+    - amazonka-cloudformation >= 1.4 && < 1.5
+    - base >= 4.9.0.0 && < 5
     - bytestring
     - cloud-seeder
-    - containers
-    - deepseq
-    - fast-logger
-    - hspec
+    - deepseq >= 1.4.1.0
+    - fast-logger >= 2.4.8
+    - hspec >= 2.4 && < 2.5
     - lens
-    - monad-logger
+    - monad-logger >= 0.3 && < 0.4
     - mtl
-    - text
+    - text >= 1.2 && < 1.3
     - transformers
     ghc-options:
     - -rtsopts

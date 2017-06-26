@@ -1,6 +1,6 @@
 {-# LANGUAGE UndecidableInstances #-}
 
-module CloudSeeder.Test.Stubs where
+module Network.CloudSeeder.Test.Stubs where
 
 import qualified Data.Text as T
 
@@ -15,8 +15,8 @@ import Data.ByteString (ByteString)
 import Data.Type.Equality ((:~:)(..))
 import System.Log.FastLogger (fromLogStr, toLogStr)
 
-import CloudSeeder.CommandLine
-import CloudSeeder.Interfaces
+import Network.CloudSeeder.CommandLine
+import Network.CloudSeeder.Interfaces
 
 --------------------------------------------------------------------------------
 -- Arguments

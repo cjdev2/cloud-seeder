@@ -1,4 +1,4 @@
-module CloudSeeder.MainSpec (spec) where
+module Network.CloudSeeder.MainSpec (spec) where
 
 import Control.Lens (review)
 import Control.Monad.Except (ExceptT, runExceptT)
@@ -6,68 +6,13 @@ import Data.Function ((&))
 import Data.Functor.Identity (runIdentity)
 import Test.Hspec
 
-import CloudSeeder.DSL
-import CloudSeeder.Interfaces
-import CloudSeeder.Main
-import CloudSeeder.Test.Stubs
-
--- mainTest :: Options -> (((), DeployState), [ByteString])
--- mainTest options = runIdentity $ main
---   & runDeployT
---     [ (StackName "test-stack", Right $ Stack (StackName "test-stack") "" [("","")])
---     , (StackName "test-stack-2", Right $ Stack (StackName "test-stack-2") "" [("","")]
---     ) ]
---   & stubFileSystemT [("/files/template.yaml", "template contents")]
---   & runLoggerT
---   & runArgumentsT options
-
+import Network.CloudSeeder.DSL
+import Network.CloudSeeder.Interfaces
+import Network.CloudSeeder.Main
+import Network.CloudSeeder.Test.Stubs
 
 spec :: Spec
 spec = parallel $ do
-  -- describe "main" $ do
-  --   it "prints the state of test-stack" $ do
-  --     let (_, logMessages) = mainTest (Options $ DescribeStack $ DescribeOptions "test-stack")
-  --     head logMessages `shouldBe` "stack test-stack deployed"
-  --
-  --   it "prints an error when stack doesn't exist" $ do
-  --     let (_, logMessages) = mainTest (Options $ DescribeStack $ DescribeOptions "stack-that-doesn't-exist")
-  --     head logMessages `shouldBe` "no stack exists with name: stack-that-doesn't-exist"
-  --
-  --   it "prints a stack id when deployment succeeds" $ do
-  --     let (_, logMessages) = mainTest
-  --           ( Options $ CL.DeployStack $ DeployOptions
-  --               "test-stack-3"
-  --               "/files/template.yaml"
-  --               [("","")]
-  --           )
-  --     head logMessages `shouldBe` "stackId 123"
-  --
-  --   it "errors when template file doesn't exist" $
-  --     (evaluate . force) (mainTest
-  --       ( Options $ DeployStack $ DeployOptions
-  --         "test-stack-3"
-  --         "/files/nothing-here.yaml"
-  --         [("","")]
-  --       )) `shouldThrow` anyErrorCall
-  --
-  --   it "parameterizes the stack" $ do
-  --     let ((_, DeployState state), _) = mainTest
-  --           ( Options $ DeployStack $ DeployOptions
-  --             "test-stack-4"
-  --             "/files/template.yaml"
-  --             [("param","marap")]
-  --           )
-  --     let result = case lookup (StackName "test-stack-4") state of
-  --           Just (Right (Stack _ _ params)) -> params
-  --           _ -> fail "invalid state"
-  --     result `shouldBe` [("param","marap")]
-
-    -- parallel $ describe "Interfaces" $ do
-    --   describe "MonadDeploy" $ do
-    --   describe "MonadArguments" $ do
-
-    -- parallel $ describe "CommandLine" $ do
-
   describe "cli" $ do
     let stubExceptT :: ExceptT CliError m a -> m (Either CliError a)
         stubExceptT = runExceptT

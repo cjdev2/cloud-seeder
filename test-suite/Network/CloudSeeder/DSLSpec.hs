@@ -1,10 +1,10 @@
-module CloudSeeder.DSLSpec (spec) where
+module Network.CloudSeeder.DSLSpec (spec) where
 
 import Control.Lens ((^.), (^..), each)
 import Data.Functor.Identity (runIdentity)
 import Test.Hspec
 
-import CloudSeeder.DSL
+import Network.CloudSeeder.DSL
 
 spec :: Spec
 spec =
