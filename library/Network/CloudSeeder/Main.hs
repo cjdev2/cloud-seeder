@@ -139,4 +139,4 @@ cliIO mConfig = do
 extractResult :: (a -> b -> c) -> (a, Maybe b) -> Errors [a] c
 extractResult f (k, m) = do
   v <- maybe (failure [k]) pure m
-  pure $ f k v
+  pure (f k v)
