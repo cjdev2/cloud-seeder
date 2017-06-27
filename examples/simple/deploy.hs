@@ -2,8 +2,8 @@
 -- stack runhaskell
 {-# LANGUAGE OverloadedStrings #-}
 
-import CloudSeeder.DSL
-import CloudSeeder.Main
+import Network.CloudSeeder.DSL
+import Network.CloudSeeder.Main
 
 main :: IO ()
 main = cliIO $ deployment "cloud-seeder-example" $ do

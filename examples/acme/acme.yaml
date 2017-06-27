@@ -1,0 +1,132 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Deploy Acme Corp Application
+
+Parameters:
+  Name:
+    Type: String
+    Description: The application's name; with Env, forms the application's subdomain
+    Default: Acme
+  BaseDomain:
+    Type: String
+    Description: The application's domain
+    Default: d.cjpowered.com
+  Env:
+    Type: String
+    Description: The name of environment
+    MinLength: 1
+  ApplicationImageTag:
+    Type: String
+    Description: The tag from which to pull the app image
+    MinLength: 1
+  LoadBalancerSecurityGroup:
+    Type: String
+    Description: The security group for the load balancer.
+    MinLength: 1
+  NetworkServiceSubnets:
+    Type: List<AWS::EC2::Subnet::Id>
+    Description: The subnets to which the load balancer attaches.
+  Cluster:
+    Type: String
+    Description: The ECS cluster for container deployment
+    MinLength: 1
+  OAuthPublicClientId:
+    Type: String
+    Description: The public id of an application key associated with a 'public' application
+    MinLength: 1
+  OAuthConfidentialClientId:
+    Type: String
+    Description: The public id of an application key associated with a 'confidential'
+      application
+    MinLength: 1
+  OAuthConfidentialClientSecret:
+    Type: String
+    Description: The secret (password) of an application key associated with a 'confidential'
+      application
+    MinLength: 1
+  AcmeHostPort:
+    Type: Number
+    Description: Acme Service's host port
+    Default: 8001
+  LogGroup:
+    Type: String
+    Description: CloudWatch Log Group
+    MinLength: 1
+
+Resources:
+  LoadBalancer:
+    Type: AWS::ElasticLoadBalancing::LoadBalancer
+    Properties:
+      CrossZone: true
+      Scheme: internet-facing
+      Listeners:
+      - InstancePort: !Ref AcmeHostPort
+        InstanceProtocol: HTTP
+        LoadBalancerPort: 443
+        Protocol: HTTPS
+        SSLCertificateId: !Ref Certificate
+      SecurityGroups: [ !Ref LoadBalancerSecurityGroup ]
+      Subnets: !Ref NetworkServiceSubnets
+
+  Service:
+    Type: AWS::ECS::Service
+    Properties:
+      Cluster: !Ref Cluster
+      Role: ecsServiceRole
+      LoadBalancers:
+      - ContainerName: http-server
+        ContainerPort: 80
+        LoadBalancerName: !Ref LoadBalancer
+      DesiredCount: 1
+      TaskDefinition: !Ref Task
+
+  Task:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      ContainerDefinitions:
+      - Name: http-server
+        Image: !Sub 114272735376.dkr.ecr.us-east-1.amazonaws.com/official/lambda-acme-corp-site:${ApplicationImageTag}
+        LogConfiguration:
+          LogDriver: awslogs
+          Options:
+            awslogs-group: !Ref LogGroup
+            awslogs-region: !Ref AWS::Region
+            awslogs-stream-prefix: acme
+        Environment:
+        - Name: CJ_IO
+          Value: !Sub https://${Env}-io.d.cjpowered.com
+        - Name: OAUTH_PUBLIC_CLIENT_ID
+          Value: !Ref OAuthPublicClientId
+        - Name: OAUTH_CONFIDENTIAL_CLIENT_ID
+          Value: !Ref OAuthConfidentialClientId
+        - Name: OAUTH_CONFIDENTIAL_CLIENT_SECRET
+          Value: !Ref OAuthConfidentialClientSecret
+        Memory: 128
+        Cpu: 200
+        PortMappings:
+        - ContainerPort: 80
+          HostPort: !Ref AcmeHostPort
+      Volumes: []
+
+  Domain:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      AliasTarget:
+        DNSName: !GetAtt LoadBalancer.DNSName
+        HostedZoneId: !GetAtt LoadBalancer.CanonicalHostedZoneNameID
+      HostedZoneId: ZZCW5RQ81QPV3
+      Name: !Sub ${Env}-${Name}.${BaseDomain}
+      Type: A
+
+  Certificate:
+    Type: AWS::CertificateManager::Certificate
+    Properties:
+      DomainName: !Sub ${Env}-${Name}.${BaseDomain}
+      DomainValidationOptions:
+        - DomainName: !Sub ${Env}-${Name}.${BaseDomain}
+          ValidationDomain: d.cjpowered.com
+
+Outputs:
+  Service:
+    Value: !Ref Service
+  Domain:
+    Value: !Ref Domain
