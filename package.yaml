@@ -61,18 +61,6 @@ library:
   - transformers-base
   source-dirs: library
 
-executables:
-  cloud-seeder:
-    dependencies:
-    - base
-    - cloud-seeder
-    ghc-options:
-    - -rtsopts
-    - -threaded
-    - -with-rtsopts=-N
-    main: Main.hs
-    source-dirs: executable
-
 tests:
   cloud-seeder-test-suite:
     dependencies:
