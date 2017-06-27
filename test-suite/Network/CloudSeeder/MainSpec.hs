@@ -1,7 +1,12 @@
+{-# LANGUAGE QuasiQuotes #-}
+{-# LANGUAGE TemplateHaskell #-}
+
 module Network.CloudSeeder.MainSpec (spec) where
 
 import Control.Lens (review)
 import Control.Monad.Except (ExceptT, runExceptT)
+import Control.Monad.Mock (MockT, WithResult(..), runMockT)
+import Control.Monad.Mock.TH (makeAction, ts)
 import Data.Function ((&))
 import Data.Functor.Identity (runIdentity)
 import Test.Hspec
@@ -10,6 +15,10 @@ import Network.CloudSeeder.DSL
 import Network.CloudSeeder.Interfaces
 import Network.CloudSeeder.Main
 import Network.CloudSeeder.Test.Stubs
+
+makeAction "CloudAction" [ts| MonadCloud |]
+mockCloudT :: Monad m => [WithResult CloudAction] -> MockT CloudAction m a -> m a
+mockCloudT = runMockT
 
 spec :: Spec
 spec = parallel $ do
@@ -28,7 +37,7 @@ spec = parallel $ do
         & stubFileSystemT []
         & stubExceptT
         & stubEnvironmentT env
-        & stubCloudT []
+        & mockCloudT []
 
     it "fails if user attempts to deploy a stack that doesn't exist in the config" $ do
       let config = runIdentity $ deployment "foo" $ do
@@ -39,7 +48,7 @@ spec = parallel $ do
           [ ("base.yaml", "base.yaml contents")]
         & stubExceptT
         & stubEnvironmentT env
-        & stubCloudT []
+        & mockCloudT []
 
     context "the configuration does not have environment variables" $ do
       let config = runIdentity $ deployment "foo" $ do
@@ -54,7 +63,7 @@ spec = parallel $ do
             [ ("base.yaml", "base.yaml contents") ]
           & stubExceptT
           & stubEnvironmentT env
-          & stubCloudT
+          & mockCloudT
             [ ComputeChangeset "test-foo-base" "base.yaml contents" env :-> "csid"
             , RunChangeSet "csid" :-> () ]
 
@@ -64,8 +73,8 @@ spec = parallel $ do
             [ ("server.yaml", "server.yaml contents") ]
           & stubExceptT
           & stubEnvironmentT env
-          & stubCloudT
-            [ DescribeStack "test-foo-base" :-> Just [("foo", "bar")]
+          & mockCloudT
+            [ GetStackOutputs "test-foo-base" :-> Just [("foo", "bar")]
             , ComputeChangeset "test-foo-server" "server.yaml contents" (env ++ [("foo", "bar")]) :-> "csid"
             , RunChangeSet "csid" :-> () ]
 
@@ -74,9 +83,9 @@ spec = parallel $ do
             [ ("frontend.yaml", "frontend.yaml contents") ]
           & stubExceptT
           & stubEnvironmentT env
-          & stubCloudT
-            [ DescribeStack "test-foo-base" :-> Just [("foo", "bar")]
-            , DescribeStack "test-foo-server" :-> Just [("baz", "qux")]
+          & mockCloudT
+            [ GetStackOutputs "test-foo-base" :-> Just [("foo", "bar")]
+            , GetStackOutputs "test-foo-server" :-> Just [("baz", "qux")]
             , ComputeChangeset "test-foo-frontend" "frontend.yaml contents" (env ++ [("foo", "bar"), ("baz", "qux")]) :-> "csid"
             , RunChangeSet "csid" :-> () ]
 
@@ -86,27 +95,27 @@ spec = parallel $ do
             [ ("frontend.yaml", "frontend.yaml contents") ]
           & stubExceptT
           & stubEnvironmentT env
-          & stubCloudT
-            [ DescribeStack "test-foo-base" :-> Nothing
-            , DescribeStack "test-foo-server" :-> Just [] ]
+          & mockCloudT
+            [ GetStackOutputs "test-foo-base" :-> Nothing
+            , GetStackOutputs "test-foo-server" :-> Just [] ]
 
         runFailure _CliMissingDependencyStacks ["server"] $ cli (DeployStack "frontend") config
           & stubFileSystemT
             [ ("frontend.yaml", "frontend.yaml contents") ]
           & stubExceptT
           & stubEnvironmentT env
-          & stubCloudT
-            [ DescribeStack "test-foo-base" :-> Just []
-            , DescribeStack "test-foo-server" :-> Nothing ]
+          & mockCloudT
+            [ GetStackOutputs "test-foo-base" :-> Just []
+            , GetStackOutputs "test-foo-server" :-> Nothing ]
 
         runFailure _CliMissingDependencyStacks ["base", "server"] $ cli (DeployStack "frontend") config
           & stubFileSystemT
             [ ("frontend.yaml", "frontend.yaml contents") ]
           & stubExceptT
           & stubEnvironmentT env
-          & stubCloudT
-            [ DescribeStack "test-foo-base" :-> Nothing
-            , DescribeStack "test-foo-server" :-> Nothing ]
+          & mockCloudT
+            [ GetStackOutputs "test-foo-base" :-> Nothing
+            , GetStackOutputs "test-foo-server" :-> Nothing ]
 
       it "fails when the Env environment variable is not specified" $ do
         runFailure _CliMissingEnvVars ["Env"] $ cli (DeployStack "server") config
@@ -114,7 +123,7 @@ spec = parallel $ do
             [ ("server.yaml", "server.yaml contents") ]
           & stubExceptT
           & stubEnvironmentT []
-          & stubCloudT []
+          & mockCloudT []
 
     context "the configuration has global environment variables" $ do
       let config = runIdentity $ deployment "foo" $ do
@@ -130,7 +139,7 @@ spec = parallel $ do
             [ ("base.yaml", "base.yaml contents") ]
           & stubExceptT
           & stubEnvironmentT env
-          & stubCloudT
+          & mockCloudT
             [ ComputeChangeset "test-foo-base" "base.yaml contents" env :-> "csid"
             , RunChangeSet "csid" :-> () ]
 
@@ -141,7 +150,7 @@ spec = parallel $ do
             [ ("base.yaml", "base.yaml contents") ]
           & stubExceptT
           & stubEnvironmentT env
-          & stubCloudT []
+          & mockCloudT []
 
       it "reports all missing environment variables at once in alphabetical order" $ do
         runFailure _CliMissingEnvVars ["Domain", "Env", "SecretsStore"] $ cli (DeployStack "base") config
@@ -149,7 +158,7 @@ spec = parallel $ do
             [ ("base.yaml", "base.yaml contents") ]
           & stubExceptT
           & stubEnvironmentT []
-          & stubCloudT []
+          & mockCloudT []
 
     context "the configuration has global and local environment variables" $ do
       let config = runIdentity $ deployment "foo" $ do
@@ -166,7 +175,7 @@ spec = parallel $ do
             [ ("base.yaml", "base.yaml contents") ]
           & stubExceptT
           & stubEnvironmentT baseEnv
-          & stubCloudT
+          & mockCloudT
             [ ComputeChangeset "test-foo-base" "base.yaml contents" baseEnv :-> "csid"
             , RunChangeSet "csid" :-> () ]
 
@@ -176,7 +185,7 @@ spec = parallel $ do
             [ ("server.yaml", "server.yaml contents") ]
           & stubExceptT
           & stubEnvironmentT serverEnv
-          & stubCloudT
-            [ DescribeStack "test-foo-base" :-> Just []
+          & mockCloudT
+            [ GetStackOutputs "test-foo-base" :-> Just []
             , ComputeChangeset "test-foo-server" "server.yaml contents" serverEnv :-> "csid"
             , RunChangeSet "csid" :-> () ]
