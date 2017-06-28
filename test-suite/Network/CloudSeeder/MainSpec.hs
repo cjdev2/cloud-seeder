@@ -9,6 +9,7 @@ import Control.Monad.Mock (MockT, WithResult(..), runMockT)
 import Control.Monad.Mock.TH (makeAction, ts)
 import Data.Function ((&))
 import Data.Functor.Identity (runIdentity)
+import Data.Semigroup ((<>))
 import Test.Hspec
 
 import Network.CloudSeeder.DSL
@@ -21,8 +22,11 @@ mockCloudT :: Monad m => [WithResult CloudAction] -> MockT CloudAction m a -> m 
 mockCloudT = runMockT
 
 spec :: Spec
-spec = parallel $ do
+spec = do
   describe "cli" $ do
+    let rootTemplate = "Parameters:\n"
+                    <> "  Env:\n"
+
     let stubExceptT :: ExceptT CliError m a -> m (Either CliError a)
         stubExceptT = runExceptT
         runSuccess x = runIdentity x `shouldBe` Right ()
@@ -39,13 +43,24 @@ spec = parallel $ do
         & stubEnvironmentT env
         & mockCloudT []
 
+    it "fails if the template parameters can't be parsed" $ do
+      let config = runIdentity $ deployment "foo" $ do
+            stack_ "base"
+          env = [("Env", "test")]
+          err = "YAML parse exception at line 0, column 8,\nwhile scanning a directive:\nfound unknown directive name"
+      runFailure _CliTemplateDecodeFail err $ cli (DeployStack "base") config
+        & stubFileSystemT [("base.yaml", "%invalid")]
+        & stubExceptT
+        & stubEnvironmentT env
+        & mockCloudT []
+
     it "fails if user attempts to deploy a stack that doesn't exist in the config" $ do
       let config = runIdentity $ deployment "foo" $ do
             stack_ "base"
           env = [("Env", "test")]
       runFailure _CliStackNotConfigured "foo" $ cli (DeployStack "foo") config
         & stubFileSystemT
-          [ ("base.yaml", "base.yaml contents")]
+          [ ("base.yaml", rootTemplate)]
         & stubExceptT
         & stubEnvironmentT env
         & mockCloudT []
@@ -60,39 +75,59 @@ spec = parallel $ do
       it "applies a changeset to a stack" $ example $ do
         runSuccess $ cli (DeployStack "base") config
           & stubFileSystemT
-            [ ("base.yaml", "base.yaml contents") ]
+            [ ("base.yaml", rootTemplate) ]
           & stubExceptT
           & stubEnvironmentT env
           & mockCloudT
-            [ ComputeChangeset "test-foo-base" "base.yaml contents" env :-> "csid"
+            [ ComputeChangeset "test-foo-base" rootTemplate env :-> "csid"
             , RunChangeSet "csid" :-> () ]
 
-      it "passes the outputs from prior stacks" $ do
+      it "passes only the outputs from previous stacks that are listed in this template's Parameters" $ do
+        let servertemplate = rootTemplate
+                          <> "  foo:\n"
+                          <> "  bar:\n"
+            baseOutputs = [ ("first", "output")
+                          , ("foo", "baz")
+                          , ("bar", "qux")
+                          , ("last", "output") ]
+
         runSuccess $ cli (DeployStack "server") config
           & stubFileSystemT
-            [ ("server.yaml", "server.yaml contents") ]
+            [ ("server.yaml", servertemplate) ]
           & stubExceptT
           & stubEnvironmentT env
           & mockCloudT
-            [ GetStackOutputs "test-foo-base" :-> Just [("foo", "bar")]
-            , ComputeChangeset "test-foo-server" "server.yaml contents" (env ++ [("foo", "bar")]) :-> "csid"
+            [ GetStackOutputs "test-foo-base" :-> Just baseOutputs
+            , ComputeChangeset
+                "test-foo-server"
+                servertemplate
+                ([("foo", "baz"), ("bar", "qux")] ++ env)
+                :-> "csid"
             , RunChangeSet "csid" :-> () ]
+
+
+        let frontendtemplate = rootTemplate
+                            <> "  foo:"
 
         runSuccess $ cli (DeployStack "frontend") config
           & stubFileSystemT
-            [ ("frontend.yaml", "frontend.yaml contents") ]
+            [ ("frontend.yaml", frontendtemplate) ]
           & stubExceptT
           & stubEnvironmentT env
           & mockCloudT
-            [ GetStackOutputs "test-foo-base" :-> Just [("foo", "bar")]
-            , GetStackOutputs "test-foo-server" :-> Just [("baz", "qux")]
-            , ComputeChangeset "test-foo-frontend" "frontend.yaml contents" (env ++ [("foo", "bar"), ("baz", "qux")]) :-> "csid"
+            [ GetStackOutputs "test-foo-base" :-> Just baseOutputs
+            , GetStackOutputs "test-foo-server" :-> Just []
+            , ComputeChangeset
+                "test-foo-frontend"
+                frontendtemplate
+                (("foo", "baz") : env)
+                :-> "csid"
             , RunChangeSet "csid" :-> () ]
 
       it "fails if a dependency stack does not exist" $ do
         runFailure _CliMissingDependencyStacks ["base"] $ cli (DeployStack "frontend") config
           & stubFileSystemT
-            [ ("frontend.yaml", "frontend.yaml contents") ]
+            [ ("frontend.yaml", rootTemplate) ]
           & stubExceptT
           & stubEnvironmentT env
           & mockCloudT
@@ -101,7 +136,7 @@ spec = parallel $ do
 
         runFailure _CliMissingDependencyStacks ["server"] $ cli (DeployStack "frontend") config
           & stubFileSystemT
-            [ ("frontend.yaml", "frontend.yaml contents") ]
+            [ ("frontend.yaml", rootTemplate) ]
           & stubExceptT
           & stubEnvironmentT env
           & mockCloudT
@@ -110,7 +145,7 @@ spec = parallel $ do
 
         runFailure _CliMissingDependencyStacks ["base", "server"] $ cli (DeployStack "frontend") config
           & stubFileSystemT
-            [ ("frontend.yaml", "frontend.yaml contents") ]
+            [ ("frontend.yaml", rootTemplate) ]
           & stubExceptT
           & stubEnvironmentT env
           & mockCloudT
@@ -120,7 +155,7 @@ spec = parallel $ do
       it "fails when the Env environment variable is not specified" $ do
         runFailure _CliMissingEnvVars ["Env"] $ cli (DeployStack "server") config
           & stubFileSystemT
-            [ ("server.yaml", "server.yaml contents") ]
+            [ ("server.yaml", rootTemplate) ]
           & stubExceptT
           & stubEnvironmentT []
           & mockCloudT []
@@ -133,21 +168,24 @@ spec = parallel $ do
             stack_ "frontend"
 
       it "passes the value in each global environment variable as a parameter" $ do
+        let template = rootTemplate
+                    <> "  Domain:\n"
+                    <> "  SecretsStore:\n"
         let env = [ ("Env", "test"), ("Domain", "example.com"), ("SecretsStore", "arn::aws:1234") ]
         runSuccess $ cli (DeployStack "base") config
           & stubFileSystemT
-            [ ("base.yaml", "base.yaml contents") ]
+            [ ("base.yaml", template) ]
           & stubExceptT
           & stubEnvironmentT env
           & mockCloudT
-            [ ComputeChangeset "test-foo-base" "base.yaml contents" env :-> "csid"
+            [ ComputeChangeset "test-foo-base" template env  :-> "csid"
             , RunChangeSet "csid" :-> () ]
 
       it "fails when a global environment variable is missing" $ do
         let env = [ ("Env", "test"), ("SecretsStore", "arn::aws:1234") ]
         runFailure _CliMissingEnvVars ["Domain"] $ cli (DeployStack "base") config
           & stubFileSystemT
-            [ ("base.yaml", "base.yaml contents") ]
+            [ ("base.yaml", rootTemplate) ]
           & stubExceptT
           & stubEnvironmentT env
           & mockCloudT []
@@ -155,7 +193,7 @@ spec = parallel $ do
       it "reports all missing environment variables at once in alphabetical order" $ do
         runFailure _CliMissingEnvVars ["Domain", "Env", "SecretsStore"] $ cli (DeployStack "base") config
           & stubFileSystemT
-            [ ("base.yaml", "base.yaml contents") ]
+            [ ("base.yaml", rootTemplate) ]
           & stubExceptT
           & stubEnvironmentT []
           & mockCloudT []
@@ -166,26 +204,34 @@ spec = parallel $ do
             stack "base" $ environment ["Base"]
             stack "server" $ environment ["Server1", "Server2"]
             stack "frontend" $ environment ["Frontend"]
+      let template = rootTemplate
+                  <> "  Domain:\n"
+                  <> "  SecretsStore:\n"
 
       it "passes the value in each local environment variable to the proper stack" $ do
         let env = [ ("Env", "test"), ("Domain", "example.com"), ("SecretsStore", "arn::aws:1234") ]
             baseEnv = env ++ [ ("Base", "a") ]
+            baseTemplate = template
+                        <> "  Base:\n"
         runSuccess $ cli (DeployStack "base") config
           & stubFileSystemT
-            [ ("base.yaml", "base.yaml contents") ]
+            [ ("base.yaml", baseTemplate) ]
           & stubExceptT
           & stubEnvironmentT baseEnv
           & mockCloudT
-            [ ComputeChangeset "test-foo-base" "base.yaml contents" baseEnv :-> "csid"
+            [ ComputeChangeset "test-foo-base" baseTemplate baseEnv :-> "csid"
             , RunChangeSet "csid" :-> () ]
 
         let serverEnv = env ++ [ ("Server1", "b"), ("Server2", "c") ]
+            serverTemplate = template
+                          <> "  Server1:\n"
+                          <> "  Server2:\n"
         runSuccess $ cli (DeployStack "server") config
           & stubFileSystemT
-            [ ("server.yaml", "server.yaml contents") ]
+            [ ("server.yaml", serverTemplate) ]
           & stubExceptT
           & stubEnvironmentT serverEnv
           & mockCloudT
             [ GetStackOutputs "test-foo-base" :-> Just []
-            , ComputeChangeset "test-foo-server" "server.yaml contents" serverEnv :-> "csid"
+            , ComputeChangeset "test-foo-server" serverTemplate serverEnv :-> "csid"
             , RunChangeSet "csid" :-> () ]

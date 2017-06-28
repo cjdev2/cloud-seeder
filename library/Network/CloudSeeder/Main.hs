@@ -24,8 +24,12 @@ import Control.Monad.IO.Class (MonadIO)
 import Control.Monad.Logger (LoggingT, MonadLogger, runStderrLoggingT)
 import Control.Monad.Reader (MonadReader, ReaderT, runReaderT)
 import Control.Monad.Trans.Control (MonadBaseControl(..))
+import Data.Aeson.Lens
+import Data.HashMap.Lazy (keys)
 import Data.List (find, sort)
+import Data.Text.Encoding (encodeUtf8)
 import Data.Semigroup ((<>))
+import Data.Yaml (Value(..), decodeEither)
 import Network.AWS (Credentials(Discover), Env, newEnv)
 import System.Exit (exitFailure)
 
@@ -46,6 +50,7 @@ data CliError
   | CliFileSystemError FileSystemError
   | CliStackNotConfigured T.Text
   | CliMissingDependencyStacks [T.Text]
+  | CliTemplateDecodeFail String
   deriving (Eq, Show)
 
 makeClassy ''CliError
@@ -62,6 +67,8 @@ renderCliError (CliStackNotConfigured stackName)
 renderCliError (CliMissingDependencyStacks stackNames)
   =  "the following dependency stacks do not exist in AWS:\n"
   <> T.unlines (map ("  " <>) stackNames)
+renderCliError (CliTemplateDecodeFail decodeFailure)
+  = "template YAML decoding failed: " <> T.pack decodeFailure
 
 newtype AppM a = AppM (ReaderT Env (ExceptT CliError (LoggingT IO)) a)
   deriving ( Functor, Applicative, Monad, MonadIO, MonadBase IO
@@ -114,11 +121,17 @@ cli (DeployStack nameToDeploy) config = do
 
   templateBody <- readFile $ nameToDeploy <> ".yaml"
 
+  let decodeOrFailure = decodeEither (encodeUtf8 templateBody) :: Either String Value
+  template <- either (throwing _CliTemplateDecodeFail) return decodeOrFailure
+  let requiredParams = template ^. key "Parameters" . _Object.to keys
+
   maybeOutputs <- mapM (\stackName -> (stackName,) <$> getStackOutputs (mkStackName stackName)) dependencies
   let outputsOrFailure = runErrors $ traverse (extractResult (flip const)) maybeOutputs
-  outputs <- either (throwing _CliMissingDependencyStacks) return outputsOrFailure
+  outputs <- either (throwing _CliMissingDependencyStacks) (return . concat) outputsOrFailure
 
-  let parameters = envVars ++ concat outputs
+  let isRequired = (`elem` requiredParams)
+      parameters = filter (isRequired . fst) (outputs ++ envVars)
+
   csId <- computeChangeset (mkStackName nameToDeploy) templateBody parameters
   runChangeSet csId
 
