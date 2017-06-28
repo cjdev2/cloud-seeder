@@ -1,0 +1,18 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: cloud-seeder-example
+
+Parameters:
+  Env:
+    Type: String
+    Description: The environment in which to deploy
+    MinLength: 1
+  Foo:
+    Type: String
+
+Resources:
+  Bucket:
+    Type: AWS::S3::Bucket
+
+Outputs:
+  Bucket:
+    Value: !Ref Bucket
