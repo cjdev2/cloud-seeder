@@ -47,4 +47,4 @@ Things to notice:
 
 Run `env Env="test" Foo="bar" ./deploy.hs deploy --stack-name bucket`
 
-Load up your CloudFormation console in AWS, and you should see a stack called `test-bucket` spinning up!
+Load up your CloudFormation console in AWS, and you should see a stack called `test-cloud-seeder-example-bucket` spinning up!
