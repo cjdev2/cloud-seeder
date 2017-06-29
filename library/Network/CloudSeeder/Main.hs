@@ -106,11 +106,14 @@ cli (DeployStack nameToDeploy) config = do
       dependencies = takeWhile (/= nameToDeploy) allNames
       appName = config ^. name
       maybeStackToDeploy = config ^. stacks.to (find (has (name.only nameToDeploy)))
+      globalTags = config ^. tagSet
 
   stackToDeploy <- maybe (throwing _CliStackNotConfigured nameToDeploy) return maybeStackToDeploy
   let requiredGlobalEnvVars = "Env" : (config ^. environmentVariables)
       requiredStackEnvVars = stackToDeploy ^. environmentVariables
       requiredEnvVars = requiredGlobalEnvVars ++ requiredStackEnvVars
+      localTags = stackToDeploy ^. tagSet
+      stackTags = globalTags ++ localTags
 
   maybeEnvValues <- mapM (\envVarKey -> (envVarKey,) <$> getEnv envVarKey) requiredEnvVars
   let envVarsOrFailure = runErrors $ traverse (extractResult (,)) maybeEnvValues
@@ -132,7 +135,7 @@ cli (DeployStack nameToDeploy) config = do
   let isRequired = (`elem` requiredParams)
       parameters = filter (isRequired . fst) (outputs ++ envVars)
 
-  csId <- computeChangeset (mkStackName nameToDeploy) templateBody parameters
+  csId <- computeChangeset (mkStackName nameToDeploy) templateBody parameters stackTags
   runChangeSet csId
 
 cliIO :: IO DeploymentConfiguration -> IO ()

@@ -79,7 +79,7 @@ spec = do
           & stubExceptT
           & stubEnvironmentT env
           & mockCloudT
-            [ ComputeChangeset "test-foo-base" rootTemplate env :-> "csid"
+            [ ComputeChangeset "test-foo-base" rootTemplate env [] :-> "csid"
             , RunChangeSet "csid" :-> () ]
 
       it "passes only the outputs from previous stacks that are listed in this template's Parameters" $ do
@@ -102,6 +102,7 @@ spec = do
                 "test-foo-server"
                 servertemplate
                 ([("foo", "baz"), ("bar", "qux")] ++ env)
+                []
                 :-> "csid"
             , RunChangeSet "csid" :-> () ]
 
@@ -121,6 +122,7 @@ spec = do
                 "test-foo-frontend"
                 frontendtemplate
                 (("foo", "baz") : env)
+                []
                 :-> "csid"
             , RunChangeSet "csid" :-> () ]
 
@@ -178,7 +180,7 @@ spec = do
           & stubExceptT
           & stubEnvironmentT env
           & mockCloudT
-            [ ComputeChangeset "test-foo-base" template env  :-> "csid"
+            [ ComputeChangeset "test-foo-base" template env [] :-> "csid"
             , RunChangeSet "csid" :-> () ]
 
       it "fails when a global environment variable is missing" $ do
@@ -219,7 +221,7 @@ spec = do
           & stubExceptT
           & stubEnvironmentT baseEnv
           & mockCloudT
-            [ ComputeChangeset "test-foo-base" baseTemplate baseEnv :-> "csid"
+            [ ComputeChangeset "test-foo-base" baseTemplate baseEnv [] :-> "csid"
             , RunChangeSet "csid" :-> () ]
 
         let serverEnv = env ++ [ ("Server1", "b"), ("Server2", "c") ]
@@ -233,5 +235,56 @@ spec = do
           & stubEnvironmentT serverEnv
           & mockCloudT
             [ GetStackOutputs "test-foo-base" :-> Just []
-            , ComputeChangeset "test-foo-server" serverTemplate serverEnv :-> "csid"
+            , ComputeChangeset "test-foo-server" serverTemplate serverEnv [] :-> "csid"
+            , RunChangeSet "csid" :-> () ]
+
+    context "the configuration has global tags" $ do 
+      let tagz = [("Squad", "lambda"), ("application", "foo")]
+          config = runIdentity $ deployment "foo" $ do
+            tags tagz
+            stack_ "base"
+            stack_ "server"
+            stack_ "frontend"
+
+      it "passes the value in each tag" $ do
+        let env = [("Env", "test")]
+        runSuccess $ cli (DeployStack "base") config
+          & stubFileSystemT
+            [ ("base.yaml", rootTemplate) ]
+          & stubExceptT
+          & stubEnvironmentT env
+          & mockCloudT
+            [ ComputeChangeset "test-foo-base" rootTemplate env tagz :-> "csid"
+            , RunChangeSet "csid" :-> () ]
+
+    context "the configuration has global and local tags" $ do 
+      let tagz = [("Squad", "lambda"), ("application", "foo")]
+          serverTags = [("serverTag", "yup")]
+          frontendTags = [("frontendTag1", "ft1"), ("frontendTag2", "ft2")]
+          config = runIdentity $ deployment "foo" $ do
+            tags tagz
+            stack_ "base" 
+            stack "server" $ tags serverTags
+            stack "frontend" $ tags frontendTags
+
+      it "passes the value in each tag to the proper stack" $ do
+        let env = [("Env", "test")]
+
+        runSuccess $ cli (DeployStack "base") config
+          & stubFileSystemT
+            [ ("base.yaml", rootTemplate) ]
+          & stubExceptT
+          & stubEnvironmentT env
+          & mockCloudT
+            [ ComputeChangeset "test-foo-base" rootTemplate env tagz :-> "csid"
+            , RunChangeSet "csid" :-> () ]
+
+        runSuccess $ cli (DeployStack "server") config
+          & stubFileSystemT
+            [ ("server.yaml", rootTemplate) ]
+          & stubExceptT
+          & stubEnvironmentT env
+          & mockCloudT
+            [ GetStackOutputs "test-foo-base" :-> Just []
+            , ComputeChangeset "test-foo-server" rootTemplate env (tagz ++ serverTags) :-> "csid"
             , RunChangeSet "csid" :-> () ]

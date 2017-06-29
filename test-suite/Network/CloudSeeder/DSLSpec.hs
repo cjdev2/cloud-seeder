@@ -43,3 +43,22 @@ spec =
           let vars = ["foo", "bar", "baz"]
               config = runIdentity $ deployment "" $ stack "foo" (environment vars)
           config ^.. stacks.each.environmentVariables `shouldBe` [["foo", "bar", "baz"]]
+      
+      describe "tags" $ do 
+        it "adds environment variables to a DeploymentConfiguration" $ do
+          let tagz = [ ("tag1", "val1"), ("tag2", "val2") ]
+              config = runIdentity $ deployment "" $ tags tagz
+          config ^. tagSet `shouldBe` tagz
+
+        it "adds to the environment variables that are already there" $ do
+          let tags1 = [("foo", "bar")]
+              tags2 = [("baz", "qux"), ("bop", "dop")]
+              config = runIdentity $ deployment "" $ do
+                tags tags1
+                tags tags2
+          config ^. tagSet `shouldBe` (tags1 ++ tags2)
+
+        it "tags the current stack with the provided key value pairs" $ do 
+          let tagz = [("foo", "bar"), ("baz", "qux")]
+              config = runIdentity $ deployment "" $ stack "foo" (tags tagz)
+          config ^.. stacks.each.tagSet `shouldBe` [tagz]

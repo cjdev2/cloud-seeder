@@ -45,11 +45,11 @@ import Data.String (IsString)
 import GHC.Generics (Generic)
 import GHC.IO.Exception (IOException(..), IOErrorType(..))
 import Network.AWS (AsError(..), ErrorMessage(..), HasEnv(..), serviceMessage)
-import Network.AWS.CloudFormation.CreateChangeSet (createChangeSet, ccsChangeSetType, ccsParameters, ccsTemplateBody, ccsCapabilities, ccsrsId)
+import Network.AWS.CloudFormation.CreateChangeSet (createChangeSet, ccsChangeSetType, ccsParameters, ccsTemplateBody, ccsCapabilities, ccsrsId, ccsTags)
 import Network.AWS.CloudFormation.DescribeChangeSet (describeChangeSet, drsExecutionStatus)
 import Network.AWS.CloudFormation.DescribeStacks (dStackName, dsrsStacks, describeStacks)
 import Network.AWS.CloudFormation.ExecuteChangeSet (executeChangeSet)
-import Network.AWS.CloudFormation.Types (Capability(..), ChangeSetType(..), ExecutionStatus(..), Output, oOutputKey, oOutputValue, parameter, pParameterKey, pParameterValue, sOutputs)
+import Network.AWS.CloudFormation.Types (Capability(..), ChangeSetType(..), ExecutionStatus(..), Output, oOutputKey, oOutputValue, parameter, pParameterKey, pParameterValue, sOutputs, tag, tagKey, tagValue)
 import Options.Applicative (execParser, info, (<**>), helper, fullDesc, progDesc, header)
 import System.Environment (lookupEnv)
 
@@ -122,12 +122,12 @@ instance (MonadFileSystem e m, Monoid w) => MonadFileSystem e (WriterT w m)
 --------------------------------------------------------------------------------
 -- | A class of monads that can interact with cloud deployments.
 class Monad m => MonadCloud m where
-  computeChangeset :: StackName -> T.Text -> [(T.Text, T.Text)] -> m T.Text
+  computeChangeset :: StackName -> T.Text -> [(T.Text, T.Text)] -> [(T.Text, T.Text)] -> m T.Text
   getStackOutputs :: StackName -> m (Maybe [(T.Text, T.Text)])
   runChangeSet :: T.Text -> m ()
 
-  default computeChangeset :: (MonadTrans t, MonadCloud m', m ~ t m') => StackName -> T.Text -> [(T.Text, T.Text)] -> m T.Text
-  computeChangeset a b c = lift $ computeChangeset a b c
+  default computeChangeset :: (MonadTrans t, MonadCloud m', m ~ t m') => StackName -> T.Text -> [(T.Text, T.Text)] -> [(T.Text, T.Text)] -> m T.Text
+  computeChangeset a b c d = lift $ computeChangeset a b c d
 
   default getStackOutputs :: (MonadTrans t, MonadCloud m', m ~ t m') => StackName -> m (Maybe [(T.Text, T.Text)])
   getStackOutputs = lift . getStackOutputs
@@ -141,8 +141,8 @@ _StackDoesNotExistError :: AsError a => StackName -> Traversal' a ()
 _StackDoesNotExistError (StackName stackName) = _ServiceError.serviceMessage._Just.only (ErrorMessage msg)
   where msg = "Stack with id " <> stackName <> " does not exist"
 
-computeChangeset' :: MonadCloudIO r m => StackName -> T.Text -> [(T.Text, T.Text)] -> m T.Text
-computeChangeset' (StackName stackName) templateBody params = do
+computeChangeset' :: MonadCloudIO r m => StackName -> T.Text -> [(T.Text, T.Text)] -> [(T.Text, T.Text)] -> m T.Text
+computeChangeset' (StackName stackName) templateBody params tags = do
     env <- ask
     let stackCheckRequest = describeStacks & dStackName ?~ stackName
     runResourceT . runAWST env $ do
@@ -151,6 +151,7 @@ computeChangeset' (StackName stackName) templateBody params = do
             & ccsParameters .~ (awsParam <$> params)
             & ccsTemplateBody ?~ templateBody
             & ccsCapabilities .~ [CapabilityIAM]
+            & ccsTags .~ (awsTag <$> tags)
       request <- case stackCheckResponse ^? _Just.dsrsStacks of
         Nothing  -> return $ changeSet & ccsChangeSetType ?~ Create
         Just [_] -> return $ changeSet & ccsChangeSetType ?~ Update
@@ -162,6 +163,9 @@ computeChangeset' (StackName stackName) templateBody params = do
     awsParam (key, val) = parameter
       & pParameterKey ?~ key
       & pParameterValue ?~ val
+    awsTag (key, val) = tag
+      & tagKey ?~ key
+      & tagValue ?~ val
 
 getStackOutputs' :: MonadCloudIO r m => StackName -> m (Maybe [(T.Text, T.Text)])
 getStackOutputs' (StackName stackName) = do
