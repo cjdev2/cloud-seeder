@@ -112,15 +112,16 @@ cli (DeployStack nameToDeploy) config = do
   let requiredGlobalEnvVars = "Env" : (config ^. environmentVariables)
       requiredStackEnvVars = stackToDeploy ^. environmentVariables
       requiredEnvVars = requiredGlobalEnvVars ++ requiredStackEnvVars
-      localTags = stackToDeploy ^. tagSet
-      stackTags = globalTags ++ localTags
 
   maybeEnvValues <- mapM (\envVarKey -> (envVarKey,) <$> getEnv envVarKey) requiredEnvVars
   let envVarsOrFailure = runErrors $ traverse (extractResult (,)) maybeEnvValues
   envVars <- either (throwError . CliMissingEnvVars . sort) return envVarsOrFailure
 
   let env = snd $ head envVars
-  let mkStackName s = StackName $ env <> "-" <> appName <> "-" <> s
+      baseTags = [("cj:environment", env), ("cj:application", appName)]
+      localTags = stackToDeploy ^. tagSet
+      stackTags = sort (baseTags ++ globalTags ++ localTags)
+      mkStackName s = StackName $ env <> "-" <> appName <> "-" <> s
 
   templateBody <- readFile $ nameToDeploy <> ".yaml"
 
