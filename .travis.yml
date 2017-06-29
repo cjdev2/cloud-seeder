@@ -3,6 +3,7 @@ language: c
 cache:
   directories:
   - $HOME/.stack
+  - .stack-work
 
 # The different configurations we want to test.
 #
@@ -40,3 +41,7 @@ install:
 
 script:
 - stack --no-terminal $ARGS test --bench --no-run-benchmarks --haddock --no-haddock-deps --ghc-options=-Werror
+
+before_cache:
+- stack --no-terminal $ARGS clean cloud-seeder
+- (shopt -s nullglob globstar; rm -rf .stack-work/install/**/lib/*/cloud-seeder*)
