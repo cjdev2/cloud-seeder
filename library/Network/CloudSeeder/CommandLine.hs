@@ -4,7 +4,7 @@ module Network.CloudSeeder.CommandLine
     ) where
 
 import Data.Semigroup ((<>))
-import Options.Applicative (Parser, Mod, OptionFields, subparser, command, info, progDesc, strOption, long, metavar, help)
+import Options.Applicative (Parser, Mod, OptionFields, subparser, command, info, progDesc, strOption, long, metavar, help, short)
 import qualified Data.Text as T
 
 data Command = DeployStack T.Text
@@ -18,6 +18,7 @@ commandParser = subparser $ command "deploy" (info (DeployStack <$> stackName) (
   where
     stackName :: Parser T.Text
     stackName = textOption
-       ( long "stack-name"
-      <> metavar "STACK_NAME"
+       ( long "stack"
+      <> short 's'
+      <> metavar "STACK"
       <> help "the name of the stack in the configuration")
