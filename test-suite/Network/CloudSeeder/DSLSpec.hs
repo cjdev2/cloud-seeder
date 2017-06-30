@@ -1,13 +1,27 @@
 module Network.CloudSeeder.DSLSpec (spec) where
 
 import Control.Lens ((^.), (^..), each)
+import Control.Monad (when)
 import Data.Functor.Identity (runIdentity)
 import Test.Hspec
 
+import Network.CloudSeeder.CommandLine
 import Network.CloudSeeder.DSL
+import Network.CloudSeeder.Interfaces
+import Network.CloudSeeder.Test.Stubs
 
 spec :: Spec
-spec =
+spec = do
+  describe "new hotness" $ do
+    it "is cool" $ do
+      let opts = (Options DeployStack "" "prod")
+          config = runIdentity $ stubArgumentsT opts $ deployment "foo" $ do
+            param "foo" "bar"
+            (Options DeployStack _ env) <- getArgs
+            when (env == "prod") $ do
+              param "baz" "qux"
+      config ^. parameters `shouldBe` [("foo", "bar"), ("baz", "qux")]
+
   describe "deployment" $ do
     it "creates a DeploymentConfiguration with the given name" $ do
       let config = runIdentity $ deployment "foobar" $ return ()

@@ -24,8 +24,8 @@ newtype ArgumentsT m a = ArgumentsT (ReaderT Options m a)
            , MonadLogger, MonadFileSystem e, MonadCloud, MonadEnvironment )
 
 -- | Runs a computation with access to a set of command-line arguments.
-runArgumentsT :: Options -> ArgumentsT m a -> m a
-runArgumentsT opts (ArgumentsT x) = runReaderT x opts
+stubArgumentsT :: Options -> ArgumentsT m a -> m a
+stubArgumentsT opts (ArgumentsT x) = runReaderT x opts
 
 instance Monad m => MonadArguments (ArgumentsT m) where
   getArgs = ArgumentsT ask

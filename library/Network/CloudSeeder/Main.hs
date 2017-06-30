@@ -98,13 +98,14 @@ runAppM (AppM x) = do
 instance AsFileSystemError CliError where
   _FileSystemError = _CliFileSystemError
 
-cli :: (MonadCloud m, MonadFileSystem CliError m, MonadEnvironment m) => Options -> DeploymentConfiguration -> m ()
-cli (Options DeployStack nameToDeploy env) config = do
+cli :: (MonadArguments m, MonadCloud m, MonadFileSystem CliError m, MonadEnvironment m) => DeploymentConfiguration -> m ()
+cli config = do
+  (Options DeployStack nameToDeploy env) <- getArgs
+
   let allNames = config ^.. stacks.each.name
       dependencies = takeWhile (/= nameToDeploy) allNames
       appName = config ^. name
       maybeStackToDeploy = config ^. stacks.to (find (has (name.only nameToDeploy)))
-      globalTags = config ^. tagSet
 
   stackToDeploy <- maybe (throwing _CliStackNotConfigured nameToDeploy) return maybeStackToDeploy
   let requiredGlobalEnvVars = config ^. environmentVariables
@@ -116,6 +117,7 @@ cli (Options DeployStack nameToDeploy env) config = do
   envVars <- either (throwError . CliMissingEnvVars . sort) return envVarsOrFailure
 
   let baseTags = [("cj:environment", env), ("cj:application", appName)]
+      globalTags = config ^. tagSet
       localTags = stackToDeploy ^. tagSet
       stackTags = sort (baseTags ++ globalTags ++ localTags)
       mkStackName s = StackName $ env <> "-" <> appName <> "-" <> s
@@ -130,17 +132,19 @@ cli (Options DeployStack nameToDeploy env) config = do
   let outputsOrFailure = runErrors $ traverse (extractResult (flip const)) maybeOutputs
   outputs <- either (throwing _CliMissingDependencyStacks) (return . concat) outputsOrFailure
 
-  let isRequired = (`elem` requiredParams)
-      parameters = filter (isRequired . fst) (("Env", env) : outputs ++ envVars)
+  let globalParams = (config ^. parameters) ++ [("Env", env)]
+      localParams = stackToDeploy ^. parameters
+      allParams = globalParams ++ localParams
+      isRequired = (`elem` requiredParams)
+      stackParams = filter (isRequired . fst) (allParams ++ outputs ++ envVars)
 
-  csId <- computeChangeset (mkStackName nameToDeploy) templateBody parameters stackTags
+  csId <- computeChangeset (mkStackName nameToDeploy) templateBody stackParams stackTags
   runChangeSet csId
 
 cliIO :: IO DeploymentConfiguration -> IO ()
 cliIO mConfig = do
   config <- mConfig
-  cmd <- getArgs
-  runAppM (cli cmd config)
+  runAppM (cli config)
 
 -- | Applies a function to the members of a tuple to produce a result, unless
 -- the tuple contains 'Nothing', in which case this logs an error in the
