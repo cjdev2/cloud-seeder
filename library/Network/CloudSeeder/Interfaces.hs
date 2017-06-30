@@ -50,7 +50,7 @@ import Network.AWS.CloudFormation.DescribeChangeSet (describeChangeSet, drsExecu
 import Network.AWS.CloudFormation.DescribeStacks (dStackName, dsrsStacks, describeStacks)
 import Network.AWS.CloudFormation.ExecuteChangeSet (executeChangeSet)
 import Network.AWS.CloudFormation.Types (Capability(..), ChangeSetType(..), ExecutionStatus(..), Output, oOutputKey, oOutputValue, parameter, pParameterKey, pParameterValue, sOutputs, tag, tagKey, tagValue)
-import Options.Applicative (execParser, info, (<**>), helper, fullDesc, progDesc, header)
+import Options.Applicative (execParser)
 import System.Environment (lookupEnv)
 
 import qualified Data.Text as T
@@ -67,9 +67,9 @@ instance NFData StackName
 -- | A class of monads that can access command-line arguments.
 class Monad m => MonadArguments m where
   -- | Returns the command-line arguments provided to the program.
-  getArgs :: m Command
+  getArgs :: m Options
 
-  default getArgs :: (MonadTrans t, MonadArguments m', m ~ t m') => m Command
+  default getArgs :: (MonadTrans t, MonadArguments m', m ~ t m') => m Options
   getArgs = lift getArgs
 
 instance MonadArguments m => MonadArguments (ExceptT e m)
@@ -79,13 +79,8 @@ instance MonadArguments m => MonadArguments (StateT s m)
 instance (Monoid s, MonadArguments m) => MonadArguments (WriterT s m)
 
 instance MonadArguments IO where
-  getArgs = execParser opts
-    where
-      opts = info (commandParser <**> helper)
-        (  fullDesc
-        <> progDesc "deploy stacks to the cloud"
-        <> header "CloudSeeder"
-        )
+  getArgs = execParser $ parseOptions `withInfo` "Interact with the CloudFormation API"
+
 --------------------------------------------------------------------------------
 data FileSystemError
   = FileNotFound T.Text

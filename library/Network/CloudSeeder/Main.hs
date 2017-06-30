@@ -4,9 +4,7 @@
 {-# LANGUAGE UndecidableInstances #-}
 
 module Network.CloudSeeder.Main
-  ( Command(..)
-  , StackName(..)
-  , CliError(..)
+  ( CliError(..)
   , HasCliError(..)
   , AsCliError(..)
   , cli
@@ -100,8 +98,8 @@ runAppM (AppM x) = do
 instance AsFileSystemError CliError where
   _FileSystemError = _CliFileSystemError
 
-cli :: (MonadCloud m, MonadFileSystem CliError m, MonadEnvironment m) => Command -> DeploymentConfiguration -> m ()
-cli (DeployStack nameToDeploy) config = do
+cli :: (MonadCloud m, MonadFileSystem CliError m, MonadEnvironment m) => Options -> DeploymentConfiguration -> m ()
+cli (Options DeployStack nameToDeploy env) config = do
   let allNames = config ^.. stacks.each.name
       dependencies = takeWhile (/= nameToDeploy) allNames
       appName = config ^. name
@@ -109,7 +107,7 @@ cli (DeployStack nameToDeploy) config = do
       globalTags = config ^. tagSet
 
   stackToDeploy <- maybe (throwing _CliStackNotConfigured nameToDeploy) return maybeStackToDeploy
-  let requiredGlobalEnvVars = "Env" : (config ^. environmentVariables)
+  let requiredGlobalEnvVars = config ^. environmentVariables
       requiredStackEnvVars = stackToDeploy ^. environmentVariables
       requiredEnvVars = requiredGlobalEnvVars ++ requiredStackEnvVars
 
@@ -117,8 +115,7 @@ cli (DeployStack nameToDeploy) config = do
   let envVarsOrFailure = runErrors $ traverse (extractResult (,)) maybeEnvValues
   envVars <- either (throwError . CliMissingEnvVars . sort) return envVarsOrFailure
 
-  let env = snd $ head envVars
-      baseTags = [("cj:environment", env), ("cj:application", appName)]
+  let baseTags = [("cj:environment", env), ("cj:application", appName)]
       localTags = stackToDeploy ^. tagSet
       stackTags = sort (baseTags ++ globalTags ++ localTags)
       mkStackName s = StackName $ env <> "-" <> appName <> "-" <> s
@@ -134,7 +131,7 @@ cli (DeployStack nameToDeploy) config = do
   outputs <- either (throwing _CliMissingDependencyStacks) (return . concat) outputsOrFailure
 
   let isRequired = (`elem` requiredParams)
-      parameters = filter (isRequired . fst) (outputs ++ envVars)
+      parameters = filter (isRequired . fst) (("Env", env) : outputs ++ envVars)
 
   csId <- computeChangeset (mkStackName nameToDeploy) templateBody parameters stackTags
   runChangeSet csId

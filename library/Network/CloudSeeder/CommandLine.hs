@@ -1,24 +1,35 @@
 module Network.CloudSeeder.CommandLine
-    ( Command(..)
-    , commandParser
+    ( Options(..)
+    , Command(..)
+    , withInfo
+    , parseOptions
     ) where
 
-import Data.Semigroup ((<>))
-import Options.Applicative (Parser, Mod, OptionFields, subparser, command, info, progDesc, strOption, long, metavar, help, short)
+import Options.Applicative (ArgumentFields, Parser, ParserInfo, Mod, subparser, strArgument, command, info, progDesc, metavar, helper)
 import qualified Data.Text as T
 
-data Command = DeployStack T.Text
-  deriving (Eq, Show)
+data Command
+  = DeployStack
 
-textOption :: Mod OptionFields String -> Parser T.Text
-textOption = fmap T.pack . strOption
+data Options = Options Command T.Text T.Text
 
-commandParser :: Parser Command
-commandParser = subparser $ command "deploy" (info (DeployStack <$> stackName) (progDesc "deploy a stack"))
-  where
-    stackName :: Parser T.Text
-    stackName = textOption
-       ( long "stack"
-      <> short 's'
-      <> metavar "STACK"
-      <> help "the name of the stack in the configuration")
+textArgument :: Mod ArgumentFields String -> Parser T.Text
+textArgument = fmap T.pack . strArgument
+
+withInfo :: Parser a -> String -> ParserInfo a
+withInfo opts desc = info (helper <*> opts) $ progDesc desc
+
+parseDeploy :: Parser Command
+parseDeploy = pure DeployStack
+
+parseCommand :: Parser Command
+parseCommand = subparser $ command "deploy" (parseDeploy `withInfo` "Deploy a stack to ENV")
+
+parseStack :: Parser T.Text
+parseStack = textArgument (metavar "STACK")
+
+parseEnv :: Parser T.Text
+parseEnv = textArgument (metavar "ENV")
+
+parseOptions :: Parser Options
+parseOptions = Options <$> parseCommand <*> parseStack <*> parseEnv
