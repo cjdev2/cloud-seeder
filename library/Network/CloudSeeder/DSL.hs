@@ -4,6 +4,7 @@ module Network.CloudSeeder.DSL
   ( DeploymentConfiguration(..)
   , StackConfiguration(..)
   , environmentVariables
+  , getEnvArg
   , name
   , stacks
   , deployment
@@ -14,12 +15,17 @@ module Network.CloudSeeder.DSL
   , param
   , parameters
   , tagSet
+  , whenEnv
   ) where
 
 import Control.Lens ((%=))
+import Control.Monad (when)
 import Control.Monad.State (StateT, execStateT, lift)
 import Control.Lens.TH (makeFields)
 import qualified Data.Text as T
+
+import Network.CloudSeeder.CommandLine
+import Network.CloudSeeder.Interfaces
 
 data DeploymentConfiguration = DeploymentConfiguration
   { _deploymentConfigurationName :: T.Text
@@ -61,3 +67,13 @@ stack name' x = do
   let stackConfig = StackConfiguration name' [] [] []
   stackConfig' <- lift $ execStateT x stackConfig
   stacks %= (++ [stackConfig'])
+
+whenEnv :: MonadArguments m => T.Text -> m () -> m ()
+whenEnv env x = do
+  (DeployStack _ envToDeploy) <- getArgs
+  when (envToDeploy == env) x
+
+getEnvArg :: MonadArguments m => m T.Text
+getEnvArg = do
+  (DeployStack _ env) <- getArgs
+  return env

@@ -19,12 +19,12 @@ import Network.CloudSeeder.Interfaces
 --------------------------------------------------------------------------------
 -- Arguments
 
-newtype ArgumentsT m a = ArgumentsT (ReaderT Options m a)
+newtype ArgumentsT m a = ArgumentsT (ReaderT Command m a)
   deriving ( Functor, Applicative, Monad, MonadTrans, MonadError e
            , MonadLogger, MonadFileSystem e, MonadCloud, MonadEnvironment )
 
 -- | Runs a computation with access to a set of command-line arguments.
-stubArgumentsT :: Options -> ArgumentsT m a -> m a
+stubArgumentsT :: Command -> ArgumentsT m a -> m a
 stubArgumentsT opts (ArgumentsT x) = runReaderT x opts
 
 instance Monad m => MonadArguments (ArgumentsT m) where

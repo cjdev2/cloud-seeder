@@ -4,6 +4,7 @@
 module Network.CloudSeeder.MainSpec (spec) where
 
 import Control.Lens (review)
+import Control.Monad (when)
 import Control.Monad.Except (ExceptT, runExceptT)
 import Control.Monad.Mock (MockT, WithResult(..), runMockT)
 import Control.Monad.Mock.TH (makeAction, ts)
@@ -36,40 +37,40 @@ spec = do
         runFailure p y x = runIdentity x `shouldBe` Left (review p y)
 
     it "fails if the template doesn't exist" $ do
-      let config = runIdentity $ deployment "foo" $ do
+      let config = deployment "foo" $ do
             stack_ "base"
             stack_ "server"
       runFailure _FileNotFound "server.yaml" $ cli config
         & stubFileSystemT []
         & stubExceptT
         & stubEnvironmentT []
-        & stubArgumentsT (Options DeployStack "server" "test")
+        & stubArgumentsT (DeployStack "server" "test")
         & mockCloudT []
 
     it "fails if the template parameters can't be parsed" $ do
-      let config = runIdentity $ deployment "foo" $ do
+      let config = deployment "foo" $ do
             stack_ "base"
           err = "YAML parse exception at line 0, column 8,\nwhile scanning a directive:\nfound unknown directive name"
       runFailure _CliTemplateDecodeFail err $ cli config
         & stubFileSystemT [("base.yaml", "%invalid")]
         & stubExceptT
         & stubEnvironmentT []
-        & stubArgumentsT (Options DeployStack "base" "test")
+        & stubArgumentsT (DeployStack "base" "test")
         & mockCloudT []
 
     it "fails if user attempts to deploy a stack that doesn't exist in the config" $ do
-      let config = runIdentity $ deployment "foo" $ do
+      let config = deployment "foo" $ do
             stack_ "base"
       runFailure _CliStackNotConfigured "foo" $ cli config
         & stubFileSystemT
           [ ("base.yaml", rootTemplate)]
         & stubExceptT
         & stubEnvironmentT []
-        & stubArgumentsT (Options DeployStack "foo" "test")
+        & stubArgumentsT (DeployStack "foo" "test")
         & mockCloudT []
 
     context "the configuration does not have environment variables" $ do
-      let config = runIdentity $ deployment "foo" $ do
+      let config = deployment "foo" $ do
             stack_ "base"
             stack_ "server"
             stack_ "frontend"
@@ -80,7 +81,7 @@ spec = do
             [ ("base.yaml", rootTemplate) ]
           & stubExceptT
           & stubEnvironmentT []
-          & stubArgumentsT (Options DeployStack "base" "test")
+          & stubArgumentsT (DeployStack "base" "test")
           & mockCloudT
             [ ComputeChangeset "test-foo-base" rootTemplate rootParams rootExpectedTags :-> "csid"
             , RunChangeSet "csid" :-> () ]
@@ -99,7 +100,7 @@ spec = do
             [ ("server.yaml", servertemplate) ]
           & stubExceptT
           & stubEnvironmentT []
-          & stubArgumentsT (Options DeployStack "server" "test")
+          & stubArgumentsT (DeployStack "server" "test")
           & mockCloudT
             [ GetStackOutputs "test-foo-base" :-> Just baseOutputs
             , ComputeChangeset
@@ -119,7 +120,7 @@ spec = do
             [ ("frontend.yaml", frontendtemplate) ]
           & stubExceptT
           & stubEnvironmentT []
-          & stubArgumentsT (Options DeployStack "frontend" "test")
+          & stubArgumentsT (DeployStack "frontend" "test")
           & mockCloudT
             [ GetStackOutputs "test-foo-base" :-> Just baseOutputs
             , GetStackOutputs "test-foo-server" :-> Just []
@@ -137,7 +138,7 @@ spec = do
             [ ("frontend.yaml", rootTemplate) ]
           & stubExceptT
           & stubEnvironmentT []
-          & stubArgumentsT (Options DeployStack "frontend" "test")
+          & stubArgumentsT (DeployStack "frontend" "test")
           & mockCloudT
             [ GetStackOutputs "test-foo-base" :-> Nothing
             , GetStackOutputs "test-foo-server" :-> Just [] ]
@@ -147,7 +148,7 @@ spec = do
             [ ("frontend.yaml", rootTemplate) ]
           & stubExceptT
           & stubEnvironmentT []
-          & stubArgumentsT (Options DeployStack "frontend" "test")
+          & stubArgumentsT (DeployStack "frontend" "test")
           & mockCloudT
             [ GetStackOutputs "test-foo-base" :-> Just []
             , GetStackOutputs "test-foo-server" :-> Nothing ]
@@ -157,13 +158,13 @@ spec = do
             [ ("frontend.yaml", rootTemplate) ]
           & stubExceptT
           & stubEnvironmentT []
-          & stubArgumentsT (Options DeployStack "frontend" "test")
+          & stubArgumentsT (DeployStack "frontend" "test")
           & mockCloudT
             [ GetStackOutputs "test-foo-base" :-> Nothing
             , GetStackOutputs "test-foo-server" :-> Nothing ]
 
     context "the configuration has global environment variables" $ do
-      let config = runIdentity $ deployment "foo" $ do
+      let config = deployment "foo" $ do
             environment ["Domain", "SecretsStore"]
             stack_ "base"
             stack_ "server"
@@ -179,7 +180,7 @@ spec = do
             [ ("base.yaml", template) ]
           & stubExceptT
           & stubEnvironmentT env
-          & stubArgumentsT (Options DeployStack "base" "test")
+          & stubArgumentsT (DeployStack "base" "test")
           & mockCloudT
             [ ComputeChangeset "test-foo-base" template env rootExpectedTags :-> "csid"
             , RunChangeSet "csid" :-> () ]
@@ -191,7 +192,7 @@ spec = do
             [ ("base.yaml", rootTemplate) ]
           & stubExceptT
           & stubEnvironmentT env
-          & stubArgumentsT (Options DeployStack "base" "test")
+          & stubArgumentsT (DeployStack "base" "test")
           & mockCloudT []
 
       it "reports all missing environment variables at once in alphabetical order" $ do
@@ -200,11 +201,11 @@ spec = do
             [ ("base.yaml", rootTemplate) ]
           & stubExceptT
           & stubEnvironmentT []
-          & stubArgumentsT (Options DeployStack "base" "test")
+          & stubArgumentsT (DeployStack "base" "test")
           & mockCloudT []
 
     context "the configuration has global and local environment variables" $ do
-      let config = runIdentity $ deployment "foo" $ do
+      let config = deployment "foo" $ do
             environment ["Domain", "SecretsStore"]
             stack "base" $ environment ["Base"]
             stack "server" $ environment ["Server1", "Server2"]
@@ -223,7 +224,7 @@ spec = do
             [ ("base.yaml", baseTemplate) ]
           & stubExceptT
           & stubEnvironmentT baseEnv
-          & stubArgumentsT (Options DeployStack "base" "test")
+          & stubArgumentsT (DeployStack "base" "test")
           & mockCloudT
             [ ComputeChangeset "test-foo-base" baseTemplate baseEnv rootExpectedTags :-> "csid"
             , RunChangeSet "csid" :-> () ]
@@ -237,7 +238,7 @@ spec = do
             [ ("server.yaml", serverTemplate) ]
           & stubExceptT
           & stubEnvironmentT serverEnv
-          & stubArgumentsT (Options DeployStack "server" "test")
+          & stubArgumentsT (DeployStack "server" "test")
           & mockCloudT
             [ GetStackOutputs "test-foo-base" :-> Just []
             , ComputeChangeset "test-foo-server" serverTemplate serverEnv rootExpectedTags :-> "csid"
@@ -245,7 +246,7 @@ spec = do
 
     context "the configuration has global tags" $ do 
       let globalTags = [("cj:squad", "lambda"), ("taggo", "oggat")]
-          config = runIdentity $ deployment "foo" $ do
+          config = deployment "foo" $ do
             tags globalTags
             stack_ "base"
             stack_ "server"
@@ -258,7 +259,7 @@ spec = do
             [ ("base.yaml", rootTemplate) ]
           & stubExceptT
           & stubEnvironmentT []
-          & stubArgumentsT (Options DeployStack "base" "test")
+          & stubArgumentsT (DeployStack "base" "test")
           & mockCloudT
             [ ComputeChangeset "test-foo-base" rootTemplate rootParams expectedTags :-> "csid"
             , RunChangeSet "csid" :-> () ]
@@ -270,7 +271,7 @@ spec = do
           expectedGlobalTags = rootExpectedTags ++ globalTags
           expectedServerTags = expectedGlobalTags ++ serverTags
 
-          config = runIdentity $ deployment "foo" $ do
+          config = deployment "foo" $ do
             tags globalTags
             stack_ "base" 
             stack "server" $ tags serverTags
@@ -282,7 +283,7 @@ spec = do
             [ ("base.yaml", rootTemplate) ]
           & stubExceptT
           & stubEnvironmentT []
-          & stubArgumentsT (Options DeployStack "base" "test")
+          & stubArgumentsT (DeployStack "base" "test")
           & mockCloudT
             [ ComputeChangeset "test-foo-base" rootTemplate rootParams expectedGlobalTags :-> "csid"
             , RunChangeSet "csid" :-> () ]
@@ -292,8 +293,70 @@ spec = do
             [ ("server.yaml", rootTemplate) ]
           & stubExceptT
           & stubEnvironmentT []
-          & stubArgumentsT (Options DeployStack "server" "test")
+          & stubArgumentsT (DeployStack "server" "test")
           & mockCloudT
             [ GetStackOutputs "test-foo-base" :-> Just []
             , ComputeChangeset "test-foo-server" rootTemplate rootParams expectedServerTags :-> "csid"
+            , RunChangeSet "csid" :-> () ]
+
+    context "monadic logic" $ do
+      it "can make decisions based on the env passed in" $ do
+        let template = "Parameters:\n"
+                    <> "  Env:\n"
+                    <> "  foo:\n"
+                    <> "  baz:\n"
+        let config = deployment "foo" $ do
+              param "foo" "bar"
+              whenEnv "prod" $ do
+                param "baz" "qux"
+              stack_ "base"
+
+            expectedParams = [("foo", "bar"), ("baz", "qux"), ("Env", "prod")]
+            expectedTags = [("cj:application","foo"),("cj:environment","prod")]
+
+        runSuccess $ cli config
+          & stubFileSystemT
+            [ ("base.yaml", template) ]
+          & stubExceptT
+          & stubEnvironmentT []
+          & stubArgumentsT (DeployStack "base" "prod")
+          & mockCloudT
+            [ ComputeChangeset "prod-foo-base" template expectedParams expectedTags :-> "csid"
+            , RunChangeSet "csid" :-> () ]
+
+        runSuccess $ cli config
+          & stubFileSystemT
+            [ ("base.yaml", template) ]
+          & stubExceptT
+          & stubEnvironmentT []
+          & stubArgumentsT (DeployStack "base" "test")
+          & mockCloudT
+            [ ComputeChangeset "test-foo-base" template (("foo", "bar") : rootParams) rootExpectedTags :-> "csid"
+            , RunChangeSet "csid" :-> () ]
+
+        let config2 = deployment "foo" $ do
+              param "foo" "bar"
+              env <- getEnvArg
+              when (env == "prod") $ do
+                param "baz" "qux"
+              stack_ "base"
+
+        runSuccess $ cli config2
+          & stubFileSystemT
+            [ ("base.yaml", template) ]
+          & stubExceptT
+          & stubEnvironmentT []
+          & stubArgumentsT (DeployStack "base" "prod")
+          & mockCloudT
+            [ ComputeChangeset "prod-foo-base" template expectedParams expectedTags :-> "csid"
+            , RunChangeSet "csid" :-> () ]
+
+        runSuccess $ cli config2
+          & stubFileSystemT
+            [ ("base.yaml", template) ]
+          & stubExceptT
+          & stubEnvironmentT []
+          & stubArgumentsT (DeployStack "base" "test")
+          & mockCloudT
+            [ ComputeChangeset "test-foo-base" template (("foo", "bar") : rootParams) rootExpectedTags :-> "csid"
             , RunChangeSet "csid" :-> () ]

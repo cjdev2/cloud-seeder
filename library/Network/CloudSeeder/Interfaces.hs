@@ -69,9 +69,9 @@ instance NFData StackName
 -- | A class of monads that can access command-line arguments.
 class Monad m => MonadArguments m where
   -- | Returns the command-line arguments provided to the program.
-  getArgs :: m Options
+  getArgs :: m Command
 
-  default getArgs :: (MonadTrans t, MonadArguments m', m ~ t m') => m Options
+  default getArgs :: (MonadTrans t, MonadArguments m', m ~ t m') => m Command
   getArgs = lift getArgs
 
 instance MonadArguments m => MonadArguments (ExceptT e m)
@@ -80,11 +80,11 @@ instance MonadArguments m => MonadArguments (ReaderT r m)
 instance MonadArguments m => MonadArguments (StateT s m)
 instance (Monoid s, MonadArguments m) => MonadArguments (WriterT s m)
 
-parseOptionsWithInfo :: ParserInfo Options
-parseOptionsWithInfo = parseOptions `withInfo` "Interact with the CloudFormation API"
+parseCommandWithInfo :: ParserInfo Command
+parseCommandWithInfo = parseCommand `withInfo` "Interact with the CloudFormation API"
 
 instance MonadArguments IO where
-  getArgs = execParser parseOptionsWithInfo
+  getArgs = execParser parseCommandWithInfo
 
 --------------------------------------------------------------------------------
 data FileSystemError

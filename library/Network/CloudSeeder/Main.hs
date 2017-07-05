@@ -98,9 +98,10 @@ runAppM (AppM x) = do
 instance AsFileSystemError CliError where
   _FileSystemError = _CliFileSystemError
 
-cli :: (MonadArguments m, MonadCloud m, MonadFileSystem CliError m, MonadEnvironment m) => DeploymentConfiguration -> m ()
-cli config = do
-  (Options DeployStack nameToDeploy env) <- getArgs
+cli :: (MonadArguments m, MonadCloud m, MonadFileSystem CliError m, MonadEnvironment m) => m DeploymentConfiguration -> m ()
+cli mConfig = do
+  (DeployStack nameToDeploy env) <- getArgs
+  config <- mConfig
 
   let allNames = config ^.. stacks.each.name
       dependencies = takeWhile (/= nameToDeploy) allNames
@@ -141,10 +142,8 @@ cli config = do
   csId <- computeChangeset (mkStackName nameToDeploy) templateBody stackParams stackTags
   runChangeSet csId
 
-cliIO :: IO DeploymentConfiguration -> IO ()
-cliIO mConfig = do
-  config <- mConfig
-  runAppM (cli config)
+cliIO :: AppM DeploymentConfiguration -> IO ()
+cliIO mConfig = runAppM $ cli mConfig
 
 -- | Applies a function to the members of a tuple to produce a result, unless
 -- the tuple contains 'Nothing', in which case this logs an error in the
