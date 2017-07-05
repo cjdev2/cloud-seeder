@@ -4,7 +4,6 @@
 
 module Network.CloudSeeder.Interfaces
   ( MonadArguments(..)
-  , MonadFileSystem(..)
 
   , MonadCloud(..)
   , computeChangeset'
@@ -14,6 +13,7 @@ module Network.CloudSeeder.Interfaces
   , MonadEnvironment(..)
   , StackName(..)
 
+  , MonadFileSystem(..)
   , FileSystemError(..)
   , readFile'
   , HasFileSystemError(..)
@@ -42,6 +42,8 @@ import Control.Monad.Writer (WriterT)
 import Data.Function ((&))
 import Data.Semigroup ((<>))
 import Data.String (IsString)
+import Data.UUID (toText)
+import Data.UUID.V4 (nextRandom)
 import GHC.Generics (Generic)
 import GHC.IO.Exception (IOException(..), IOErrorType(..))
 import Network.AWS (AsError(..), ErrorMessage(..), HasEnv(..), serviceMessage)
@@ -50,7 +52,7 @@ import Network.AWS.CloudFormation.DescribeChangeSet (describeChangeSet, drsExecu
 import Network.AWS.CloudFormation.DescribeStacks (dStackName, dsrsStacks, describeStacks)
 import Network.AWS.CloudFormation.ExecuteChangeSet (executeChangeSet)
 import Network.AWS.CloudFormation.Types (Capability(..), ChangeSetType(..), ExecutionStatus(..), Output, oOutputKey, oOutputValue, parameter, pParameterKey, pParameterValue, sOutputs, tag, tagKey, tagValue)
-import Options.Applicative (execParser)
+import Options.Applicative (ParserInfo, execParser)
 import System.Environment (lookupEnv)
 
 import qualified Data.Text as T
@@ -78,8 +80,11 @@ instance MonadArguments m => MonadArguments (ReaderT r m)
 instance MonadArguments m => MonadArguments (StateT s m)
 instance (Monoid s, MonadArguments m) => MonadArguments (WriterT s m)
 
+parseOptionsWithInfo :: ParserInfo Options
+parseOptionsWithInfo = parseOptions `withInfo` "Interact with the CloudFormation API"
+
 instance MonadArguments IO where
-  getArgs = execParser $ parseOptions `withInfo` "Interact with the CloudFormation API"
+  getArgs = execParser parseOptionsWithInfo
 
 --------------------------------------------------------------------------------
 data FileSystemError
@@ -140,9 +145,13 @@ computeChangeset' :: MonadCloudIO r m => StackName -> T.Text -> [(T.Text, T.Text
 computeChangeset' (StackName stackName) templateBody params tags = do
     env <- ask
     let stackCheckRequest = describeStacks & dStackName ?~ stackName
+
+    uuid <- liftBase $ nextRandom
+    let changeSetName = "cs-" <> toText uuid -- change set name must begin with a letter
+
     runResourceT . runAWST env $ do
       stackCheckResponse <- IO.trying_ (_StackDoesNotExistError (StackName stackName)) $ send stackCheckRequest
-      let changeSet = createChangeSet stackName stackName -- TODO gen UUID for changeset name
+      let changeSet = createChangeSet stackName changeSetName
             & ccsParameters .~ (awsParam <$> params)
             & ccsTemplateBody ?~ templateBody
             & ccsCapabilities .~ [CapabilityIAM]

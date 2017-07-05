@@ -61,6 +61,7 @@ library:
   - transformers
   - transformers-base
   - unordered-containers
+  - uuid
   - yaml
   source-dirs: library
 
