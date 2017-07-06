@@ -100,7 +100,7 @@ instance AsFileSystemError CliError where
 
 cli :: (MonadArguments m, MonadCloud m, MonadFileSystem CliError m, MonadEnvironment m) => m DeploymentConfiguration -> m ()
 cli mConfig = do
-  (DeployStack nameToDeploy env) <- getArgs
+  (DeployStack nameToDeploy env opts) <- getArgs
   config <- mConfig
 
   let allNames = config ^.. stacks.each.name
@@ -136,8 +136,9 @@ cli mConfig = do
   let globalParams = (config ^. parameters) ++ [("Env", env)]
       localParams = stackToDeploy ^. parameters
       allParams = globalParams ++ localParams
+      optParams = map (\(Optional k v) -> (k, v)) opts
       isRequired = (`elem` requiredParams)
-      stackParams = filter (isRequired . fst) (allParams ++ outputs ++ envVars)
+      stackParams = sort $ filter (isRequired . fst) (allParams ++ outputs ++ envVars ++ optParams)
 
   csId <- computeChangeset (mkStackName nameToDeploy) templateBody stackParams stackTags
   runChangeSet csId
