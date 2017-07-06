@@ -14,5 +14,5 @@ spec = do
     it "parses a simple deploy command" $ do 
       let input = ["deploy", "stack", "env"]
           expected = (DeployStack "stack" "env" [])
-      let parsed = fromJust $ parse parseCommandWithInfo input
+          parsed = fromJust $ parse parseCommandWithInfo input
       parsed `shouldBe` expected

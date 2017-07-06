@@ -7,7 +7,7 @@ module Network.CloudSeeder.CommandLine
     ) where
 
 import Data.Monoid ((<>))
-import Options.Applicative (ArgumentFields, OptionFields, Parser, ParserInfo, Mod, subparser, strArgument, strOption, command, info, progDesc, many, metavar, helper, long, short)
+import Options.Applicative (ArgumentFields, OptionFields, Parser, ParserInfo, Mod, fullDesc, subparser, strArgument, strOption, command, info, progDesc, many, metavar, helper, long, short, header)
 import qualified Data.Text as T
 
 data Command = DeployStack 
@@ -34,12 +34,16 @@ textOption :: Mod OptionFields String -> Parser T.Text
 textOption = fmap T.pack . strOption
 
 withInfo :: Parser a -> String -> ParserInfo a
-withInfo opts desc = info (helper <*> opts) $ progDesc desc
+withInfo parser desc = info (helper <*> parser) $ progDesc desc
 
 -- parsers --
 
 parseCommandWithInfo :: ParserInfo Command
-parseCommandWithInfo = parseCommand `withInfo` "Interact with the CloudFormation API"
+parseCommandWithInfo = info (helper <*> parseCommand) 
+  ( fullDesc 
+ <> progDesc "Interact with the CloudFormation API"
+ <> header "Cloud-Seeder -- a tool for interacting with the AWS CloudFormation API"
+  )
 
 parseCommand :: Parser Command
 parseCommand = subparser $ command "deploy" (parseDeploy `withInfo` "Deploy a stack to ENV")
