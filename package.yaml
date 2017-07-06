@@ -79,6 +79,7 @@ tests:
     - monad-logger
     - monad-mock
     - mtl
+    - optparse-applicative >= 0.13.0.0
     - text
     - transformers
     ghc-options:

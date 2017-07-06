@@ -52,7 +52,7 @@ import Network.AWS.CloudFormation.DescribeChangeSet (describeChangeSet, drsExecu
 import Network.AWS.CloudFormation.DescribeStacks (dStackName, dsrsStacks, describeStacks)
 import Network.AWS.CloudFormation.ExecuteChangeSet (executeChangeSet)
 import Network.AWS.CloudFormation.Types (Capability(..), ChangeSetType(..), ExecutionStatus(..), Output, oOutputKey, oOutputValue, parameter, pParameterKey, pParameterValue, sOutputs, tag, tagKey, tagValue)
-import Options.Applicative (ParserInfo, execParser)
+import Options.Applicative (execParser)
 import System.Environment (lookupEnv)
 
 import qualified Data.Text as T
@@ -79,9 +79,6 @@ instance MonadArguments m => MonadArguments (LoggingT m)
 instance MonadArguments m => MonadArguments (ReaderT r m)
 instance MonadArguments m => MonadArguments (StateT s m)
 instance (Monoid s, MonadArguments m) => MonadArguments (WriterT s m)
-
-parseCommandWithInfo :: ParserInfo Command
-parseCommandWithInfo = parseCommand `withInfo` "Interact with the CloudFormation API"
 
 instance MonadArguments IO where
   getArgs = execParser parseCommandWithInfo
