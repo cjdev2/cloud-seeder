@@ -1,29 +1,24 @@
 module Network.CloudSeeder.CommandLine
     ( Command(..)
-    , Optional(..)
-    , defaultDeployStack
-    , parseCommandWithInfo
+    , ParameterSpec(..)
+    , parseArguments
+    , parseOptions
     , withInfo
     ) where
 
 import Data.Monoid ((<>))
-import Options.Applicative (ArgumentFields, OptionFields, Parser, ParserInfo, Mod, fullDesc, subparser, strArgument, strOption, command, info, progDesc, many, metavar, helper, long, short, header)
+import Options.Applicative 
+
+import qualified Data.Map as M
+import qualified Data.Set as S
 import qualified Data.Text as T
+
+import Network.CloudSeeder.Types
 
 data Command = DeployStack 
  { commandStack :: T.Text
  , commandEnv :: T.Text
- , commandOptionals :: [Optional] 
  } deriving (Eq, Show)
-
-data Optional = Optional T.Text T.Text
-  deriving (Eq, Show)
-
-defaultDeployStack :: Command
-defaultDeployStack = DeployStack 
-  { commandStack = ""
-  , commandEnv = ""
-  , commandOptionals = [] }
 
 -- helpers --
 
@@ -38,10 +33,31 @@ withInfo parser desc = info (helper <*> parser) $ progDesc desc
 
 -- parsers --
 
-parseCommandWithInfo :: ParserInfo Command
-parseCommandWithInfo = info (helper <*> parseCommand) 
+parseOptions :: S.Set (T.Text, ParameterSource) -> ParserInfo (M.Map T.Text T.Text)
+parseOptions ps = info (helper <*> parseCommand *> parseParameters ps)
   ( fullDesc 
- <> progDesc "Interact with the CloudFormation API"
+ <> progDesc "Interact with the CloudFormation API o"
+ <> header "Cloud-Seeder -- a tool for interacting with the AWS CloudFormation API"
+  )
+
+parseParameters :: S.Set (T.Text, ParameterSource) -> Parser (M.Map T.Text T.Text)
+parseParameters ps = M.fromList <$> traverse parseParameter (S.toList ps)
+
+parseParameter :: (T.Text, ParameterSource) -> Parser (T.Text, T.Text)
+parseParameter (key, Flag) = do 
+  let k = T.unpack key
+  val <- textOption (long k <> metavar k <> noArgError (ErrorMsg $ "Required flag not provided: " <> k))
+  pure (key, val)
+parseParameter (key, _) = do 
+  let k = T.unpack key
+      err = ErrorMsg "parseParameter -- the impossible happened: attempted to parse a non-flag parameter source."
+  abort <- abortOption err (long k <> metavar k)
+  pure (key, abort key)
+
+parseArguments :: ParserInfo Command
+parseArguments = info (helper <*> parseCommand) 
+  ( fullDesc 
+ <> progDesc "Interact with the CloudFormation API a"
  <> header "Cloud-Seeder -- a tool for interacting with the AWS CloudFormation API"
   )
 
@@ -49,7 +65,7 @@ parseCommand :: Parser Command
 parseCommand = subparser $ command "deploy" (parseDeploy `withInfo` "Deploy a stack to ENV")
 
 parseDeploy :: Parser Command
-parseDeploy = DeployStack <$> parseStack <*> parseEnv <*> many parseOptional
+parseDeploy = DeployStack <$> parseStack <*> parseEnv <* many parseAnyOption
 
 parseStack :: Parser T.Text
 parseStack = textArgument (metavar "STACK")
@@ -57,7 +73,5 @@ parseStack = textArgument (metavar "STACK")
 parseEnv :: Parser T.Text
 parseEnv = textArgument (metavar "ENV")
 
-parseOptional :: Parser Optional
-parseOptional = Optional 
-  <$> textOption (long "optional-key" <> short 'k' <> metavar "OPTIONAL_KEY") 
-  <*> textOption (long "optional-val" <> short 'v' <> metavar "OPTIONAL_VALUE")
+parseAnyOption :: Parser String
+parseAnyOption = strArgument hidden
