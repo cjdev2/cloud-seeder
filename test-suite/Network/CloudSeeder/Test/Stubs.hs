@@ -11,7 +11,11 @@ import Control.Monad.Writer (WriterT(..), tell)
 import Control.Monad.Trans.Class (MonadTrans(..))
 import Control.Monad.Logger (MonadLogger(..))
 import Data.ByteString (ByteString)
+import Data.Maybe (fromJust)
+import Options.Applicative (ParserInfo(..), execParserPure, defaultPrefs, getParseResult)
 import System.Log.FastLogger (fromLogStr, toLogStr)
+
+import qualified Data.Map as M
 
 import Network.CloudSeeder.CommandLine
 import Network.CloudSeeder.Interfaces
@@ -19,23 +23,33 @@ import Network.CloudSeeder.Interfaces
 --------------------------------------------------------------------------------
 -- Arguments
 
-newtype ArgumentsT m a = ArgumentsT (ReaderT Command m a)
+newtype ArgumentsT m a = ArgumentsT (ReaderT [String] m a)
   deriving ( Functor, Applicative, Monad, MonadTrans, MonadError e
            , MonadLogger, MonadFileSystem e, MonadCloud, MonadEnvironment )
 
 -- | Runs a computation with access to a set of command-line arguments.
-stubArgumentsT :: Command -> ArgumentsT m a -> m a
-stubArgumentsT opts (ArgumentsT x) = runReaderT x opts
+stubArgumentsT :: [String] -> ArgumentsT m a -> m a
+stubArgumentsT fake (ArgumentsT x) = runReaderT x fake
 
-instance Monad m => MonadArguments (ArgumentsT m) where
-  getArgs = ArgumentsT ask
+instance (AsArgumentsError e, MonadError e m) => MonadCLI e (ArgumentsT m) where
+  getArgs = ArgumentsT $ do 
+    input <- ask
+    return $ consume parseArguments $ take 3 input
+
+  getOptions pSpecs = ArgumentsT $ do 
+    input <- ask
+    let x = execParserPure defaultPrefs (parseOptions pSpecs) input
+    return $ fromJust $ getParseResult x
+
+consume :: ParserInfo c -> [String] -> c
+consume p = fromJust . getParseResult . execParserPure defaultPrefs p
 
 --------------------------------------------------------------------------------
 -- Logger
 
 newtype LoggerT m a = LoggerT (WriterT [ByteString] m a)
   deriving ( Functor, Applicative, Monad, MonadTrans, MonadError e
-           , MonadArguments, MonadFileSystem e, MonadCloud, MonadEnvironment )
+           , MonadCLI e, MonadFileSystem e, MonadCloud, MonadEnvironment )
 
 -- | Runs a computation that may emit log messages, returning the result of the
 -- computation combined with the set of messages logged, in order.
@@ -50,7 +64,7 @@ instance Monad m => MonadLogger (LoggerT m) where
 
 newtype FileSystemT m a = FileSystemT (ReaderT [(T.Text, T.Text)] m a)
   deriving ( Functor, Applicative, Monad, MonadTrans, MonadError e
-           , MonadArguments, MonadLogger, MonadCloud, MonadEnvironment )
+           , MonadCLI e, MonadLogger, MonadCloud, MonadEnvironment )
 
 -- | Runs a computation that may interact with the file system, given a mapping
 -- from file paths to file contents.
@@ -65,12 +79,12 @@ instance (AsFileSystemError e, MonadError e m) => MonadFileSystem e (FileSystemT
 --------------------------------------------------------------------------------
 -- Environment
 
-newtype EnvironmentT m a = EnvironmentT (ReaderT [(T.Text, T.Text)] m a)
+newtype EnvironmentT m a = EnvironmentT (ReaderT (M.Map T.Text T.Text) m a)
   deriving ( Functor, Applicative, Monad, MonadTrans, MonadError e
-           , MonadArguments, MonadLogger, MonadFileSystem e, MonadCloud )
+           , MonadCLI e, MonadLogger, MonadFileSystem e, MonadCloud )
 
-stubEnvironmentT :: [(T.Text, T.Text)] -> EnvironmentT m a -> m a
+stubEnvironmentT :: M.Map T.Text T.Text -> EnvironmentT m a -> m a
 stubEnvironmentT fs (EnvironmentT x) = runReaderT x fs
 
 instance Monad m => MonadEnvironment (EnvironmentT m) where
-  getEnv x = lookup x <$> EnvironmentT ask
+  getEnv x = M.lookup x <$> EnvironmentT ask

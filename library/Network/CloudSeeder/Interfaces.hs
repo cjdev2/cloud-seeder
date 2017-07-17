@@ -3,7 +3,14 @@
 {-# LANGUAGE UndecidableInstances #-}
 
 module Network.CloudSeeder.Interfaces
-  ( MonadArguments(..)
+  ( MonadCLI(..)
+  , ArgumentsError(..)
+  , HasArgumentsError(..)
+  , AsArgumentsError(..)
+  , getArgs'
+  , getOptions'
+  , whenEnv
+  , getEnvArg
 
   , MonadCloud(..)
   , computeChangeset'
@@ -26,7 +33,7 @@ import Control.Concurrent (threadDelay)
 import Control.DeepSeq (NFData)
 import Control.Lens (Traversal', (.~), (^.), (^?), (?~), _Just, only, to)
 import Control.Lens.TH (makeClassy, makeClassyPrisms)
-import Control.Monad (void, unless)
+import Control.Monad (void, unless, when)
 import Control.Monad.Base (MonadBase, liftBase)
 import Control.Monad.Catch (MonadCatch, MonadThrow)
 import Control.Monad.Error.Lens (throwing)
@@ -52,12 +59,15 @@ import Network.AWS.CloudFormation.DescribeChangeSet (describeChangeSet, drsExecu
 import Network.AWS.CloudFormation.DescribeStacks (dStackName, dsrsStacks, describeStacks)
 import Network.AWS.CloudFormation.ExecuteChangeSet (executeChangeSet)
 import Network.AWS.CloudFormation.Types (Capability(..), ChangeSetType(..), ExecutionStatus(..), Output, oOutputKey, oOutputValue, parameter, pParameterKey, pParameterValue, sOutputs, tag, tagKey, tagValue)
-import Options.Applicative (ParserInfo, execParser)
+import Options.Applicative (execParser, execParserPure, defaultPrefs, handleParseResult)
 import System.Environment (lookupEnv)
 
+import qualified Data.Map as M
+import qualified Data.Set as S
 import qualified Data.Text as T
 import qualified Data.Text.IO as T
 import qualified Control.Exception.Lens as IO
+import qualified System.Environment as IO
 
 import Network.CloudSeeder.CommandLine
 
@@ -67,24 +77,53 @@ instance NFData StackName
 
 --------------------------------------------------------------------------------
 -- | A class of monads that can access command-line arguments.
-class Monad m => MonadArguments m where
-  -- | Returns the command-line arguments provided to the program.
-  getArgs :: m Command
 
-  default getArgs :: (MonadTrans t, MonadArguments m', m ~ t m') => m Command
+data ArgumentsError
+  = WrongArity [T.Text]
+  deriving (Eq, Show)
+
+makeClassy ''ArgumentsError
+makeClassyPrisms ''ArgumentsError
+
+class (AsArgumentsError e, MonadError e m) => MonadCLI e m | m -> e where
+  -- | Returns positional arguments provided to the program while ignoring flags -- separate from getOptions to avoid cyclical dependencies.
+  getArgs :: m Command
+  default getArgs :: (MonadTrans t, MonadCLI e m', m ~ t m') => m Command
   getArgs = lift getArgs
 
-instance MonadArguments m => MonadArguments (ExceptT e m)
-instance MonadArguments m => MonadArguments (LoggingT m)
-instance MonadArguments m => MonadArguments (ReaderT r m)
-instance MonadArguments m => MonadArguments (StateT s m)
-instance (Monoid s, MonadArguments m) => MonadArguments (WriterT s m)
+  -- | Returns flags provided to the program while ignoring positional arguments -- separate from getArgs to avoid cyclical dependencies.
+  getOptions :: S.Set T.Text -> m (M.Map T.Text T.Text)
+  default getOptions :: (MonadTrans t, MonadCLI e m', m ~ t m') => S.Set T.Text -> m (M.Map T.Text T.Text)
+  getOptions = lift . getOptions
 
-parseCommandWithInfo :: ParserInfo Command
-parseCommandWithInfo = parseCommand `withInfo` "Interact with the CloudFormation API"
+getArgs' :: (AsArgumentsError e, MonadError e m, MonadBase IO m) => m Command 
+getArgs' = do
+  args <- liftBase $ IO.getArgs
+  when (length args < 3) $ throwing _WrongArity (map T.pack args)
+  liftBase $ consume $ take 3 args
+  where 
+    consume = handleParseResult . execParserPure defaultPrefs parseArguments 
 
-instance MonadArguments IO where
-  getArgs = execParser parseCommandWithInfo
+getOptions' :: MonadBase IO m => S.Set T.Text -> m (M.Map T.Text T.Text)
+getOptions' = liftBase . execParser . parseOptions
+
+instance MonadCLI e m => MonadCLI e (ExceptT e m)
+instance MonadCLI e m => MonadCLI e (LoggingT m)
+instance MonadCLI e m => MonadCLI e (ReaderT r m)
+instance MonadCLI e m => MonadCLI e (StateT s m)
+instance (Monoid s, MonadCLI e m) => MonadCLI e (WriterT s m)
+
+-- DSL helpers
+
+getEnvArg :: MonadCLI e m => m T.Text
+getEnvArg = do
+  (DeployStack _ env) <- getArgs
+  return env
+
+whenEnv :: MonadCLI e m => T.Text -> m () -> m ()
+whenEnv env x = do
+  envToDeploy <- getEnvArg
+  when (envToDeploy == env) x
 
 --------------------------------------------------------------------------------
 data FileSystemError
@@ -122,14 +161,14 @@ instance (MonadFileSystem e m, Monoid w) => MonadFileSystem e (WriterT w m)
 --------------------------------------------------------------------------------
 -- | A class of monads that can interact with cloud deployments.
 class Monad m => MonadCloud m where
-  computeChangeset :: StackName -> T.Text -> [(T.Text, T.Text)] -> [(T.Text, T.Text)] -> m T.Text
-  getStackOutputs :: StackName -> m (Maybe [(T.Text, T.Text)])
+  computeChangeset :: StackName -> T.Text -> M.Map T.Text T.Text -> M.Map T.Text T.Text -> m T.Text
+  getStackOutputs :: StackName -> m (Maybe (M.Map T.Text T.Text))
   runChangeSet :: T.Text -> m ()
 
-  default computeChangeset :: (MonadTrans t, MonadCloud m', m ~ t m') => StackName -> T.Text -> [(T.Text, T.Text)] -> [(T.Text, T.Text)] -> m T.Text
+  default computeChangeset :: (MonadTrans t, MonadCloud m', m ~ t m') => StackName -> T.Text -> M.Map T.Text T.Text -> M.Map T.Text T.Text -> m T.Text
   computeChangeset a b c d = lift $ computeChangeset a b c d
 
-  default getStackOutputs :: (MonadTrans t, MonadCloud m', m ~ t m') => StackName -> m (Maybe [(T.Text, T.Text)])
+  default getStackOutputs :: (MonadTrans t, MonadCloud m', m ~ t m') => StackName -> m (Maybe (M.Map T.Text T.Text))
   getStackOutputs = lift . getStackOutputs
 
   default runChangeSet :: (MonadTrans t, MonadCloud m', m ~ t m') => T.Text -> m ()
@@ -141,7 +180,7 @@ _StackDoesNotExistError :: AsError a => StackName -> Traversal' a ()
 _StackDoesNotExistError (StackName stackName) = _ServiceError.serviceMessage._Just.only (ErrorMessage msg)
   where msg = "Stack with id " <> stackName <> " does not exist"
 
-computeChangeset' :: MonadCloudIO r m => StackName -> T.Text -> [(T.Text, T.Text)] -> [(T.Text, T.Text)] -> m T.Text
+computeChangeset' :: MonadCloudIO r m => StackName -> T.Text -> M.Map T.Text T.Text -> M.Map T.Text T.Text -> m T.Text
 computeChangeset' (StackName stackName) templateBody params tags = do
     env <- ask
     let stackCheckRequest = describeStacks & dStackName ?~ stackName
@@ -152,10 +191,10 @@ computeChangeset' (StackName stackName) templateBody params tags = do
     runResourceT . runAWST env $ do
       stackCheckResponse <- IO.trying_ (_StackDoesNotExistError (StackName stackName)) $ send stackCheckRequest
       let changeSet = createChangeSet stackName changeSetName
-            & ccsParameters .~ (awsParam <$> params)
+            & ccsParameters .~ (map awsParam (M.toList params))
             & ccsTemplateBody ?~ templateBody
             & ccsCapabilities .~ [CapabilityIAM]
-            & ccsTags .~ (awsTag <$> tags)
+            & ccsTags .~ (map awsTag (M.toList tags))
       request <- case stackCheckResponse ^? _Just.dsrsStacks of
         Nothing  -> return $ changeSet & ccsChangeSetType ?~ Create
         Just [_] -> return $ changeSet & ccsChangeSetType ?~ Update
@@ -171,7 +210,7 @@ computeChangeset' (StackName stackName) templateBody params tags = do
       & tagKey ?~ key
       & tagValue ?~ val
 
-getStackOutputs' :: MonadCloudIO r m => StackName -> m (Maybe [(T.Text, T.Text)])
+getStackOutputs' :: MonadCloudIO r m => StackName -> m (Maybe (M.Map T.Text T.Text))
 getStackOutputs' (StackName stackName) = do
     env <- ask
     let request = describeStacks & dStackName ?~ stackName
@@ -179,7 +218,7 @@ getStackOutputs' (StackName stackName) = do
       response <- IO.trying_ (_StackDoesNotExistError (StackName stackName)) $ send request
       case response ^? _Just.dsrsStacks of
         Nothing -> return Nothing
-        Just [stack] -> Just <$> mapM outputToTuple (stack ^. sOutputs)
+        Just [stack] -> Just . M.fromList <$> mapM outputToTuple (stack ^. sOutputs)
         Just _ -> fail "getStackOutputs: describeStacks returned more than one stack"
   where
     outputToTuple :: Monad m => Output -> m (T.Text, T.Text)

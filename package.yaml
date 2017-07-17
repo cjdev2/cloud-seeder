@@ -21,7 +21,7 @@ extra-source-files:
 - README.md
 - stack.yaml
 
-ghc-options: -Wall
+ghc-options: -Wall -Wredundant-constraints
 default-extensions:
 - ApplicativeDo
 - ConstraintKinds
@@ -36,6 +36,7 @@ default-extensions:
 - LambdaCase
 - MultiParamTypeClasses
 - NamedFieldPuns
+- OverloadedLists
 - OverloadedStrings
 - RankNTypes
 - ScopedTypeVariables
@@ -45,10 +46,12 @@ default-extensions:
 
 library:
   dependencies:
+  - aeson >= 0.11.2.0
   - amazonka >= 1.4.5
   - amazonka-cloudformation >= 1.4.5
   - amazonka-core >= 1.4.5
   - base >= 4.9.0.0 && < 5
+  - containers
   - deepseq >= 1.4.1.0
   - exceptions >= 0.6
   - lens
@@ -72,6 +75,7 @@ tests:
     - base
     - bytestring
     - cloud-seeder
+    - containers
     - deepseq
     - fast-logger
     - hspec
@@ -79,8 +83,10 @@ tests:
     - monad-logger
     - monad-mock
     - mtl
+    - optparse-applicative
     - text
     - transformers
+    - yaml
     ghc-options:
     - -rtsopts
     - -threaded
