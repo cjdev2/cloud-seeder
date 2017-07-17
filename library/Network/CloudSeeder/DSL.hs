@@ -69,7 +69,7 @@ tags ts = tagSet %= (<> (S.fromList ts))
 param :: (Monad m, HasParameters a (S.Set (T.Text, T.Text)), HasParameterSources a (S.Set (T.Text, ParameterSource))) 
       => T.Text -> T.Text -> StateT a m ()
 param key val = do 
-  parameters %= (<> (S.fromList [(key, val)]))
+  parameters %= (<> S.fromList [(key, val)])
   paramSource key Constant
 
 stack_ :: Monad m => T.Text -> StateT DeploymentConfiguration m ()

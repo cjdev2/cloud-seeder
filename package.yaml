@@ -46,7 +46,7 @@ default-extensions:
 
 library:
   dependencies:
-  - aeson
+  - aeson >= 0.11.2.0
   - amazonka >= 1.4.5
   - amazonka-cloudformation >= 1.4.5
   - amazonka-core >= 1.4.5
@@ -83,7 +83,7 @@ tests:
     - monad-logger
     - monad-mock
     - mtl
-    - optparse-applicative >= 0.13.0.0
+    - optparse-applicative
     - text
     - transformers
     - yaml

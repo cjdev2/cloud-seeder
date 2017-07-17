@@ -104,7 +104,7 @@ getArgs' = do
   where 
     consume = handleParseResult . execParserPure defaultPrefs parseArguments 
 
-getOptions' :: (AsArgumentsError e, MonadError e m, MonadBase IO m) => S.Set (T.Text, ParameterSource) -> m (M.Map T.Text T.Text)
+getOptions' :: MonadBase IO m => S.Set (T.Text, ParameterSource) -> m (M.Map T.Text T.Text)
 getOptions' ps = liftBase $ execParser $ parseOptions ps
 
 instance MonadArguments e m => MonadArguments e (ExceptT e m)

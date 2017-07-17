@@ -99,7 +99,7 @@ newtype AppM a = AppM (ReaderT Env (ExceptT CliError (LoggingT IO)) a)
 instance MonadBaseControl IO AppM where
   type StM AppM a = StM (ReaderT Env (ExceptT CliError (LoggingT IO))) a
   liftBaseWith f = AppM (liftBaseWith (\g -> f (\(AppM x) -> g x)))
-  restoreM = AppM . restoreM 
+  restoreM = AppM . restoreM
 
 instance MonadFileSystem CliError AppM where
   readFile = readFile'
@@ -151,13 +151,12 @@ cli mConfig = do
   csId <- computeChangeset fullStackName templateBody validParams validTags
   runChangeSet csId
 
-getStackToDeploy :: (AsCliError e, MonadError e m, HasName s T.Text, Foldable t, HasStacks s1 (t s)) => s1 -> T.Text -> m s
+getStackToDeploy :: (AsCliError e, MonadError e m) => DeploymentConfiguration -> T.Text -> m StackConfiguration
 getStackToDeploy config nameToDeploy = do 
   let maybeStackToDeploy = config ^. stacks.to (find (has (name.only nameToDeploy)))
   maybe (throwing _CliStackNotConfigured nameToDeploy) return maybeStackToDeploy
 
-getEnvVars :: (MonadError CliError m, MonadEnvironment m, HasEnvironmentVariables s1 [T.Text], HasEnvironmentVariables s [T.Text]) 
-           => s1 -> s -> m (S.Set (T.Text, T.Text))
+getEnvVars :: (MonadError CliError m, MonadEnvironment m) => DeploymentConfiguration -> StackConfiguration -> m (S.Set (T.Text, T.Text))
 getEnvVars config stackToDeploy = do 
   let requiredGlobalEnvVars = config ^. environmentVariables
       requiredStackEnvVars = stackToDeploy ^. environmentVariables
@@ -172,7 +171,8 @@ decodeTemplate templateBody = do
   let decodeOrFailure = decodeEither (encodeUtf8 templateBody) :: Either String Template
   either (throwing _CliTemplateDecodeFail) return decodeOrFailure
 
-getOutputs :: (AsCliError e, MonadError e m, MonadCloud m, Traversable t) => t T.Text -> T.Text -> T.Text -> m (S.Set (T.Text, T.Text))
+getOutputs :: (AsCliError e, MonadError e m, MonadCloud m, Traversable t) 
+           => t T.Text -> T.Text -> T.Text -> m (S.Set (T.Text, T.Text))
 getOutputs dependencies env appName = do 
   maybeOutputs <- mapM (\stackName -> (stackName,) <$> getStackOutputs (mkFullStackName env appName stackName)) dependencies
   let outputsOrFailure = runErrors $ traverse (extractResult (flip const)) maybeOutputs
@@ -181,7 +181,7 @@ getOutputs dependencies env appName = do
 mkFullStackName :: T.Text -> T.Text -> T.Text -> StackName
 mkFullStackName env appName stackName = StackName $ env <> "-" <> appName <> "-" <> stackName
 
-getTags :: (HasTagSet s1 (S.Set (T.Text, T.Text)), HasTagSet s (S.Set (T.Text, T.Text))) => s1 -> s -> T.Text -> T.Text -> S.Set (T.Text, T.Text)
+getTags :: DeploymentConfiguration -> StackConfiguration -> T.Text -> T.Text -> S.Set (T.Text, T.Text)
 getTags config stackToDeploy env appName = baseTags <> globalTags <> localTags
   where 
     baseTags :: S.Set (T.Text, T.Text)
@@ -189,8 +189,7 @@ getTags config stackToDeploy env appName = baseTags <> globalTags <> localTags
     globalTags = config ^. tagSet
     localTags = stackToDeploy ^. tagSet
 
-getPassedParameters :: ( MonadArguments e f, HasParameterSources s1 (S.Set (T.Text, ParameterSource)), HasParameterSources s (S.Set (T.Text, ParameterSource))) 
-                    => s1 -> s -> f (S.Set (T.Text, T.Text))
+getPassedParameters :: (MonadArguments e m) => DeploymentConfiguration -> StackConfiguration -> m (S.Set (T.Text, T.Text))
 getPassedParameters config stackToDeploy = do
   let globalParamSources = config ^. parameterSources
       localParamSources = stackToDeploy ^. parameterSources
@@ -200,15 +199,14 @@ getPassedParameters config stackToDeploy = do
       --TODO: use a more lensy approach, a la something like replacing "isFlag" w/ "(_2.is _Flag)"
   S.fromList . M.toList <$> getOptions paramFlags
 
-collectParameters :: (HasParameters s1 (S.Set (T.Text, T.Text)), HasParameters s (S.Set (T.Text, T.Text))) 
-                  => s1 -> s -> S.Set (T.Text, T.Text) -> T.Text -> S.Set (T.Text, T.Text) -> S.Set (T.Text, T.Text) -> S.Set (T.Text, T.Text)
+collectParameters :: DeploymentConfiguration -> StackConfiguration -> S.Set (T.Text, T.Text) -> T.Text -> S.Set (T.Text, T.Text) -> S.Set (T.Text, T.Text) -> S.Set (T.Text, T.Text)
 collectParameters config stackToDeploy envVars env passedParams outputs =
   let globalParams = config ^. parameters
       localParams = stackToDeploy ^. parameters
   in globalParams <> localParams <> outputs <> envVars <> [("Env", env)] <> passedParams
 
-getParameters :: (MonadArguments CliError f, HasEnvironmentVariables s [T.Text], HasEnvironmentVariables s1 [T.Text], MonadEnvironment f, MonadCloud f, Traversable t, HasParameterSources s1 (S.Set (T.Text, ParameterSource)), HasParameterSources s (S.Set (T.Text, ParameterSource)), HasParameters s1 (S.Set (T.Text, T.Text)), HasParameters s (S.Set (T.Text, T.Text))) 
-              => s1 -> s -> t T.Text -> T.Text -> T.Text -> f (S.Set (T.Text, T.Text))
+getParameters :: (MonadArguments CliError m, MonadEnvironment m, MonadCloud m) 
+              => DeploymentConfiguration -> StackConfiguration -> [T.Text] -> T.Text -> T.Text -> m (S.Set (T.Text, T.Text))
 getParameters config stackToDeploy dependencies env appName = do 
   envVars <- getEnvVars config stackToDeploy
   outputs <- getOutputs dependencies env appName
@@ -245,7 +243,7 @@ assertUnique _Err paramSet = case duplicateParams of
     [] -> return $ M.fromList paramList
     _ -> throwing _Err duplicateParams
   where
-    paramList = S.toList paramSet
+    paramList = S.toAscList paramSet
     paramsGrouped = tuplesToMap paramList
     duplicateParams = M.filter ((> 1) . length) paramsGrouped
 

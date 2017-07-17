@@ -1,5 +1,6 @@
 {-# LANGUAGE TemplateHaskell #-}
 
+-- |The `Template` module exports functions dealing with parsing YAML CloudFormation templates.
 module Network.CloudSeeder.Template 
   ( Template(..)
   , HasParameterSpecs(..)

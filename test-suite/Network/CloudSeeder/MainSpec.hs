@@ -360,4 +360,3 @@ spec = do
             & mockCloudT
               [ ComputeChangeset "test-foo-base" template expectedParamsTest rootExpectedTags :-> "csid"
               , RunChangeSet "csid" :-> () ]
-    
