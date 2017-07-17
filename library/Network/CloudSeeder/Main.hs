@@ -104,7 +104,7 @@ instance MonadBaseControl IO AppM where
 instance MonadFileSystem CliError AppM where
   readFile = readFile'
 
-instance MonadArguments CliError AppM where 
+instance MonadCLI CliError AppM where 
   getArgs = getArgs'
   getOptions = getOptions'
 
@@ -128,7 +128,7 @@ instance AsFileSystemError CliError where
 instance AsArgumentsError CliError where 
   _ArgumentsError = _CliArgumentsError
 
-cli :: (MonadArguments CliError m, MonadCloud m, MonadFileSystem CliError m, MonadEnvironment m) => m DeploymentConfiguration -> m ()
+cli :: (MonadCLI CliError m, MonadCloud m, MonadFileSystem CliError m, MonadEnvironment m) => m DeploymentConfiguration -> m ()
 cli mConfig = do
   config <- mConfig
   (DeployStack nameToDeploy env) <- getArgs
@@ -189,7 +189,7 @@ getTags config stackToDeploy env appName = baseTags <> globalTags <> localTags
     globalTags = config ^. tagSet
     localTags = stackToDeploy ^. tagSet
 
-getPassedParameters :: (MonadArguments e m) => DeploymentConfiguration -> StackConfiguration -> m (S.Set (T.Text, T.Text))
+getPassedParameters :: (MonadCLI e m) => DeploymentConfiguration -> StackConfiguration -> m (S.Set (T.Text, T.Text))
 getPassedParameters config stackToDeploy = do
   let globalParamSources = config ^. parameterSources
       localParamSources = stackToDeploy ^. parameterSources
@@ -205,7 +205,7 @@ collectParameters config stackToDeploy envVars env passedParams outputs =
       localParams = stackToDeploy ^. parameters
   in globalParams <> localParams <> outputs <> envVars <> [("Env", env)] <> passedParams
 
-getParameters :: (MonadArguments CliError m, MonadEnvironment m, MonadCloud m) 
+getParameters :: (MonadCLI CliError m, MonadEnvironment m, MonadCloud m) 
               => DeploymentConfiguration -> StackConfiguration -> [T.Text] -> T.Text -> T.Text -> m (S.Set (T.Text, T.Text))
 getParameters config stackToDeploy dependencies env appName = do 
   envVars <- getEnvVars config stackToDeploy
@@ -238,7 +238,7 @@ tuplesToMap xs = M.fromList $ map concatGroup grouped
     grouped = groupBy ((==) `on` fst) xs
     concatGroup ys = (fst (head ys), map snd ys)
 
-assertUnique :: (AsCliError e, MonadError e m) => Prism' e (M.Map T.Text [T.Text]) -> S.Set (T.Text, T.Text) -> m (M.Map T.Text T.Text)
+assertUnique :: MonadError e m => Prism' e (M.Map T.Text [T.Text]) -> S.Set (T.Text, T.Text) -> m (M.Map T.Text T.Text)
 assertUnique _Err paramSet = case duplicateParams of
     [] -> return $ M.fromList paramList
     _ -> throwing _Err duplicateParams

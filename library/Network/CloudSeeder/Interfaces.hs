@@ -3,7 +3,7 @@
 {-# LANGUAGE UndecidableInstances #-}
 
 module Network.CloudSeeder.Interfaces
-  ( MonadArguments(..)
+  ( MonadCLI(..)
   , ArgumentsError(..)
   , HasArgumentsError(..)
   , AsArgumentsError(..)
@@ -86,14 +86,15 @@ data ArgumentsError
 makeClassy ''ArgumentsError
 makeClassyPrisms ''ArgumentsError
 
-class (AsArgumentsError e, MonadError e m) => MonadArguments e m | m -> e where
-  -- | Returns the command-line arguments provided to the program.
+class (AsArgumentsError e, MonadError e m) => MonadCLI e m | m -> e where
+  -- | Returns positional arguments provided to the program while ignoring flags -- separate from getOptions to avoid cyclical dependencies.
   getArgs :: m Command
-  default getArgs :: (MonadTrans t, MonadArguments e m', m ~ t m') => m Command
+  default getArgs :: (MonadTrans t, MonadCLI e m', m ~ t m') => m Command
   getArgs = lift getArgs
 
+  -- | Returns flags provided to the program while ignoring positional arguments -- separate from getArgs to avoid cyclical dependencies.
   getOptions :: S.Set (T.Text, ParameterSource) -> m (M.Map T.Text T.Text)
-  default getOptions :: (MonadTrans t, MonadArguments e m', m ~ t m') => S.Set (T.Text, ParameterSource) -> m (M.Map T.Text T.Text)
+  default getOptions :: (MonadTrans t, MonadCLI e m', m ~ t m') => S.Set (T.Text, ParameterSource) -> m (M.Map T.Text T.Text)
   getOptions = lift . getOptions
 
 getArgs' :: (AsArgumentsError e, MonadError e m, MonadBase IO m) => m Command 
@@ -107,20 +108,20 @@ getArgs' = do
 getOptions' :: MonadBase IO m => S.Set (T.Text, ParameterSource) -> m (M.Map T.Text T.Text)
 getOptions' ps = liftBase $ execParser $ parseOptions ps
 
-instance MonadArguments e m => MonadArguments e (ExceptT e m)
-instance MonadArguments e m => MonadArguments e (LoggingT m)
-instance MonadArguments e m => MonadArguments e (ReaderT r m)
-instance MonadArguments e m => MonadArguments e (StateT s m)
-instance (Monoid s, MonadArguments e m) => MonadArguments e (WriterT s m)
+instance MonadCLI e m => MonadCLI e (ExceptT e m)
+instance MonadCLI e m => MonadCLI e (LoggingT m)
+instance MonadCLI e m => MonadCLI e (ReaderT r m)
+instance MonadCLI e m => MonadCLI e (StateT s m)
+instance (Monoid s, MonadCLI e m) => MonadCLI e (WriterT s m)
 
 -- DSL helpers
 
-getEnvArg :: MonadArguments e m => m T.Text
+getEnvArg :: MonadCLI e m => m T.Text
 getEnvArg = do
   (DeployStack _ env) <- getArgs
   return env
 
-whenEnv :: MonadArguments e m => T.Text -> m () -> m ()
+whenEnv :: MonadCLI e m => T.Text -> m () -> m ()
 whenEnv env x = do
   envToDeploy <- getEnvArg
   when (envToDeploy == env) x
