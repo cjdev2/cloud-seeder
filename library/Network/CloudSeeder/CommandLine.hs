@@ -32,15 +32,15 @@ withInfo parser desc = info (helper <*> parser) $ progDesc desc
 
 -- parsers --
 
-parseOptions :: S.Set (T.Text, ParameterSource) -> ParserInfo (M.Map T.Text T.Text)
+parseOptions :: S.Set T.Text -> ParserInfo (M.Map T.Text T.Text)
 parseOptions ps = info (helper <*> parseCommand *> parseParameters ps)
   ( fullDesc 
  <> progDesc "Interact with the CloudFormation API"
  <> header "Cloud-Seeder -- a tool for interacting with the AWS CloudFormation API"
   )
 
-parseParameters :: S.Set (T.Text, ParameterSource) -> Parser (M.Map T.Text T.Text)
-parseParameters ps = M.fromList <$> traverse (parseParameter . fst) (S.toList ps)
+parseParameters :: S.Set T.Text -> Parser (M.Map T.Text T.Text)
+parseParameters ps = M.fromList <$> traverse parseParameter (S.toList ps)
 
 parseParameter :: T.Text -> Parser (T.Text, T.Text)
 parseParameter key = do 

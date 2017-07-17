@@ -70,7 +70,6 @@ import qualified Control.Exception.Lens as IO
 import qualified System.Environment as IO
 
 import Network.CloudSeeder.CommandLine
-import Network.CloudSeeder.Types
 
 newtype StackName = StackName T.Text
   deriving (Eq, Show, Generic, IsString)
@@ -93,8 +92,8 @@ class (AsArgumentsError e, MonadError e m) => MonadCLI e m | m -> e where
   getArgs = lift getArgs
 
   -- | Returns flags provided to the program while ignoring positional arguments -- separate from getArgs to avoid cyclical dependencies.
-  getOptions :: S.Set (T.Text, ParameterSource) -> m (M.Map T.Text T.Text)
-  default getOptions :: (MonadTrans t, MonadCLI e m', m ~ t m') => S.Set (T.Text, ParameterSource) -> m (M.Map T.Text T.Text)
+  getOptions :: S.Set T.Text -> m (M.Map T.Text T.Text)
+  default getOptions :: (MonadTrans t, MonadCLI e m', m ~ t m') => S.Set T.Text -> m (M.Map T.Text T.Text)
   getOptions = lift . getOptions
 
 getArgs' :: (AsArgumentsError e, MonadError e m, MonadBase IO m) => m Command 
@@ -105,8 +104,8 @@ getArgs' = do
   where 
     consume = handleParseResult . execParserPure defaultPrefs parseArguments 
 
-getOptions' :: MonadBase IO m => S.Set (T.Text, ParameterSource) -> m (M.Map T.Text T.Text)
-getOptions' ps = liftBase $ execParser $ parseOptions ps
+getOptions' :: MonadBase IO m => S.Set T.Text -> m (M.Map T.Text T.Text)
+getOptions' = liftBase . execParser . parseOptions
 
 instance MonadCLI e m => MonadCLI e (ExceptT e m)
 instance MonadCLI e m => MonadCLI e (LoggingT m)

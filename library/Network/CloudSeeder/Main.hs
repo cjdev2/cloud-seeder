@@ -12,7 +12,7 @@ module Network.CloudSeeder.Main
   ) where
 
 import Control.Applicative.Lift (Errors, failure, runErrors)
-import Control.Lens (Prism', _Wrapped, (^.), (^..), each, filtered, folded, makeClassy, makeClassyPrisms, has, only, to)
+import Control.Lens (Prism', _1, _2, _Wrapped, (^.), (^..), each, filtered, folded, makeClassy, makeClassyPrisms, has, only, to)
 import Control.Monad (unless)
 import Control.Monad.Base (MonadBase)
 import Control.Monad.Catch (MonadCatch, MonadThrow)
@@ -193,10 +193,8 @@ getPassedParameters :: (MonadCLI e m) => DeploymentConfiguration -> StackConfigu
 getPassedParameters config stackToDeploy = do
   let globalParamSources = config ^. parameterSources
       localParamSources = stackToDeploy ^. parameterSources
-      isFlag (_, Flag) = True
-      isFlag (_, _) = False
-      paramFlags = S.fromList $ (globalParamSources <> localParamSources)^..folded.filtered isFlag
-      --TODO: use a more lensy approach, a la something like replacing "isFlag" w/ "(_2.is _Flag)"
+      allParamSources = globalParamSources <> localParamSources
+      paramFlags = S.fromList $ allParamSources ^.. folded.filtered (has (_2._Flag))._1
   S.fromList . M.toList <$> getOptions paramFlags
 
 collectParameters :: DeploymentConfiguration -> StackConfiguration -> S.Set (T.Text, T.Text) -> T.Text -> S.Set (T.Text, T.Text) -> S.Set (T.Text, T.Text) -> S.Set (T.Text, T.Text)
