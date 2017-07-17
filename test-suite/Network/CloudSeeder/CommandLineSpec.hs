@@ -23,13 +23,6 @@ spec = do
             parsed = fromJust . getParseResult $ runParser parseArguments command
         parsed `shouldBe` expected
 
-    --   it "parses a command and ignores subsequent options" $ do 
-    --     let input = command ++ ["--flag", "val"]
-    --         expected = DeployStack "stack" "env"
-    --         parsed = fromJust . getParseResult $ runParser parseArguments input
-    --     parsed `shouldBe` expected
-    -- TODO test "getArgs" instead, as that's where the logic to ignore options is located
-
     describe "optional parsing" $ do 
       it "parses a required parameter" $ do 
         let flags :: S.Set (T.Text, ParameterSource)
@@ -44,4 +37,4 @@ spec = do
             flags = [("flag", Flag)]
             input = command ++ ["--notFlag", "boop"]
             parsed = getParseResult $ runParser (parseOptions flags) input
-        parsed `shouldBe` Nothing -- TODO replace with specific error
+        parsed `shouldBe` Nothing

@@ -8,10 +8,9 @@ module Network.CloudSeeder.Template
 
 import Control.Lens (Lens', lens, makeFields)
 import Data.Aeson.Types (typeMismatch)
-import Data.Yaml (FromJSON(..), Value(..), (.:), (.:?))
+import Data.Yaml (FromJSON(..), Value(..), (.:))
 
 import qualified Data.Text as T
-import qualified Data.HashMap.Strict as H
 import qualified Data.Set as S
 
 import Network.CloudSeeder.Types

@@ -133,64 +133,104 @@ cli mConfig = do
   config <- mConfig
   (DeployStack nameToDeploy env) <- getArgs
 
-  let allNames = config ^.. stacks.each.name
-      dependencies = takeWhile (/= nameToDeploy) allNames
+  let dependencies = takeWhile (/= nameToDeploy) (config ^.. stacks.each.name)
       appName = config ^. name
-      maybeStackToDeploy = config ^. stacks.to (find (has (name.only nameToDeploy)))
 
-  stackToDeploy <- maybe (throwing _CliStackNotConfigured nameToDeploy) return maybeStackToDeploy
+  stackToDeploy <- getStackToDeploy config nameToDeploy
+
+  templateBody <- readFile $ nameToDeploy <> ".yaml"
+  template <- decodeTemplate templateBody
+
+  allParams <- getParameters config stackToDeploy dependencies env appName
+  validParams <- validateParameters template allParams
+
+  let stackTags = getTags config stackToDeploy env appName
+  validTags <- validateTags stackTags
+
+  let fullStackName = mkFullStackName env appName nameToDeploy
+  csId <- computeChangeset fullStackName templateBody validParams validTags
+  runChangeSet csId
+
+getStackToDeploy :: (AsCliError e, MonadError e m, HasName s T.Text, Foldable t, HasStacks s1 (t s)) => s1 -> T.Text -> m s
+getStackToDeploy config nameToDeploy = do 
+  let maybeStackToDeploy = config ^. stacks.to (find (has (name.only nameToDeploy)))
+  maybe (throwing _CliStackNotConfigured nameToDeploy) return maybeStackToDeploy
+
+getEnvVars :: (MonadError CliError m, MonadEnvironment m, HasEnvironmentVariables s1 [T.Text], HasEnvironmentVariables s [T.Text]) 
+           => s1 -> s -> m (S.Set (T.Text, T.Text))
+getEnvVars config stackToDeploy = do 
   let requiredGlobalEnvVars = config ^. environmentVariables
       requiredStackEnvVars = stackToDeploy ^. environmentVariables
       requiredEnvVars = requiredGlobalEnvVars ++ requiredStackEnvVars
 
   maybeEnvValues <- mapM (\envVarKey -> (envVarKey,) <$> getEnv envVarKey) requiredEnvVars
   let envVarsOrFailure = runErrors $ traverse (extractResult (,)) maybeEnvValues
-  envVars <- either (throwError . CliMissingEnvVars . sort) (return . S.fromList) envVarsOrFailure
+  either (throwError . CliMissingEnvVars . sort) (return . S.fromList) envVarsOrFailure
 
-  let baseTags = [("cj:environment", env), ("cj:application", appName)]
-      globalTags = config ^. tagSet
-      localTags = stackToDeploy ^. tagSet
-      stackTags = baseTags <> globalTags <> localTags
-      mkStackName s = StackName $ env <> "-" <> appName <> "-" <> s
-
-  templateBody <- readFile $ nameToDeploy <> ".yaml"
+decodeTemplate :: (AsCliError e, MonadError e m) => T.Text -> m Template
+decodeTemplate templateBody = do
   let decodeOrFailure = decodeEither (encodeUtf8 templateBody) :: Either String Template
-  template <- either (throwing _CliTemplateDecodeFail) return decodeOrFailure
+  either (throwing _CliTemplateDecodeFail) return decodeOrFailure
 
-  let paramSpecs = template ^. parameterSpecs
-
-  maybeOutputs <- mapM (\stackName -> (stackName,) <$> getStackOutputs (mkStackName stackName)) dependencies
+getOutputs :: (AsCliError e, MonadError e m, MonadCloud m, Traversable t) => t T.Text -> T.Text -> T.Text -> m (S.Set (T.Text, T.Text))
+getOutputs dependencies env appName = do 
+  maybeOutputs <- mapM (\stackName -> (stackName,) <$> getStackOutputs (mkFullStackName env appName stackName)) dependencies
   let outputsOrFailure = runErrors $ traverse (extractResult (flip const)) maybeOutputs
-  outputs <- either (throwing _CliMissingDependencyStacks) (return . S.fromList . concatMap M.toList) outputsOrFailure
+  either (throwing _CliMissingDependencyStacks) (return . S.fromList . concatMap M.toList) outputsOrFailure
 
-  let globalParams = config ^. parameters
-      localParams = stackToDeploy ^. parameters
-      globalParamSources :: S.Set (T.Text, ParameterSource)
-      globalParamSources = config ^. parameterSources
-      localParamSources :: S.Set (T.Text, ParameterSource)
+mkFullStackName :: T.Text -> T.Text -> T.Text -> StackName
+mkFullStackName env appName stackName = StackName $ env <> "-" <> appName <> "-" <> stackName
+
+getTags :: (HasTagSet s1 (S.Set (T.Text, T.Text)), HasTagSet s (S.Set (T.Text, T.Text))) => s1 -> s -> T.Text -> T.Text -> S.Set (T.Text, T.Text)
+getTags config stackToDeploy env appName = baseTags <> globalTags <> localTags
+  where 
+    baseTags :: S.Set (T.Text, T.Text)
+    baseTags = [("cj:environment", env), ("cj:application", appName)]
+    globalTags = config ^. tagSet
+    localTags = stackToDeploy ^. tagSet
+
+getPassedParameters :: ( MonadArguments e f, HasParameterSources s1 (S.Set (T.Text, ParameterSource)), HasParameterSources s (S.Set (T.Text, ParameterSource))) 
+                    => s1 -> s -> f (S.Set (T.Text, T.Text))
+getPassedParameters config stackToDeploy = do
+  let globalParamSources = config ^. parameterSources
       localParamSources = stackToDeploy ^. parameterSources
-      paramFlags :: S.Set (T.Text, ParameterSource)
-      paramFlags = S.fromList $ (globalParamSources <> localParamSources)^..folded.filtered isFlag 
-      --TODO: use more sweet lensiness, a la something like replacing "isFlag" w/ "(_2.is _Flag)"
       isFlag (_, Flag) = True
       isFlag (_, _) = False
+      paramFlags = S.fromList $ (globalParamSources <> localParamSources)^..folded.filtered isFlag
+      --TODO: use a more lensy approach, a la something like replacing "isFlag" w/ "(_2.is _Flag)"
+  S.fromList . M.toList <$> getOptions paramFlags
 
-  passedParams <- S.fromList . M.toList <$> getOptions paramFlags
+collectParameters :: (HasParameters s1 (S.Set (T.Text, T.Text)), HasParameters s (S.Set (T.Text, T.Text))) 
+                  => s1 -> s -> S.Set (T.Text, T.Text) -> T.Text -> S.Set (T.Text, T.Text) -> S.Set (T.Text, T.Text) -> S.Set (T.Text, T.Text)
+collectParameters config stackToDeploy envVars env passedParams outputs =
+  let globalParams = config ^. parameters
+      localParams = stackToDeploy ^. parameters
+  in globalParams <> localParams <> outputs <> envVars <> [("Env", env)] <> passedParams
 
-  let allParams = globalParams <> localParams <> outputs <> envVars <> [("Env", env)] <> passedParams
+getParameters :: (MonadArguments CliError f, HasEnvironmentVariables s [T.Text], HasEnvironmentVariables s1 [T.Text], MonadEnvironment f, MonadCloud f, Traversable t, HasParameterSources s1 (S.Set (T.Text, ParameterSource)), HasParameterSources s (S.Set (T.Text, ParameterSource)), HasParameters s1 (S.Set (T.Text, T.Text)), HasParameters s (S.Set (T.Text, T.Text))) 
+              => s1 -> s -> t T.Text -> T.Text -> T.Text -> f (S.Set (T.Text, T.Text))
+getParameters config stackToDeploy dependencies env appName = do 
+  envVars <- getEnvVars config stackToDeploy
+  outputs <- getOutputs dependencies env appName
+  passedParams <- getPassedParameters config stackToDeploy
+  return $ collectParameters config stackToDeploy envVars env passedParams outputs
+
+validateTags :: (MonadError e m, AsCliError e) => S.Set (T.Text, T.Text) -> m (M.Map T.Text T.Text)
+validateTags ts = assertUnique _CliDuplicateTagValues ts
+
+validateParameters :: (AsCliError e, HasParameterSpecs s (f ParameterSpec), Foldable f, MonadError e m) 
+                   => s -> S.Set (T.Text, T.Text) -> m (M.Map T.Text T.Text)
+validateParameters template params = do
+  let paramSpecs = template ^. parameterSpecs
       requiredParamNames = S.fromList (paramSpecs ^.. folded._Required)
       allowedParamNames = S.fromList (paramSpecs ^.. folded.parameterKey)
 
-  uniqueParams <- assertUnique _CliDuplicateParameterValues allParams
-  uniqueTags <- assertUnique _CliDuplicateTagValues stackTags
-
+  uniqueParams <- assertUnique _CliDuplicateParameterValues params
   let missingParamNames = requiredParamNames S.\\ M.keysSet uniqueParams
-      allowedParams = uniqueParams `M.intersection` M.fromSet (const ()) allowedParamNames
   unless (S.null missingParamNames) $
     throwing _CliMissingRequiredParameters missingParamNames
 
-  csId <- computeChangeset (mkStackName nameToDeploy) templateBody allowedParams uniqueTags
-  runChangeSet csId
+  return $ uniqueParams `M.intersection` M.fromSet (const ()) allowedParamNames
 
 cliIO :: AppM DeploymentConfiguration -> IO ()
 cliIO mConfig = runAppM $ cli mConfig
