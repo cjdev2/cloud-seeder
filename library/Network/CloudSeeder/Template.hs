@@ -11,7 +11,6 @@ import Data.Aeson.Types (typeMismatch)
 import Data.Yaml (FromJSON(..), Value(..), (.:))
 
 import qualified Data.Text as T
-import qualified Data.Set as S
 
 import Network.CloudSeeder.Types
 
@@ -25,7 +24,7 @@ parameterKey = lens get set
     set (Optional _ y) x = Optional x y
 
 data Template = Template
-  { _templateParameterSpecs :: S.Set ParameterSpec
+  { _templateParameterSpecs :: ParameterSpecs
   } deriving (Eq, Show)
 
 makeFields ''Template

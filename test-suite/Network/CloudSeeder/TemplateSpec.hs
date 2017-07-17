@@ -18,7 +18,7 @@ spec = do
             ++ "    Type: blah\n"
             ++ "  Foo:\n"
             ++ "    Type: blah\n"
-          expected = Template $ [Required "Env", Required "Foo"]
+          expected = Template $ ParameterSpecs [Required "Env", Required "Foo"]
           parsed = fromJust . decode $ pack template
       parsed `shouldBe` expected
 
@@ -31,6 +31,6 @@ spec = do
             ++ "  Foo:\n"
             ++ "    Type: boop\n"
             ++ "    Default: bar\n"
-          expected = Template $ [Optional "Env" "test", Optional "Foo" "bar"]
+          expected = Template $ ParameterSpecs [Optional "Env" "test", Optional "Foo" "bar"]
           parsed = fromJust . decode $ pack template
       parsed `shouldBe` expected

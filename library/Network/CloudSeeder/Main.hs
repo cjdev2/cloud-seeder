@@ -12,7 +12,7 @@ module Network.CloudSeeder.Main
   ) where
 
 import Control.Applicative.Lift (Errors, failure, runErrors)
-import Control.Lens (Prism', (^.), (^..), each, filtered, folded, makeClassy, makeClassyPrisms, has, only, to)
+import Control.Lens (Prism', _Wrapped, (^.), (^..), each, filtered, folded, makeClassy, makeClassyPrisms, has, only, to)
 import Control.Monad (unless)
 import Control.Monad.Base (MonadBase)
 import Control.Monad.Catch (MonadCatch, MonadThrow)
@@ -218,12 +218,11 @@ getParameters config stackToDeploy dependencies env appName = do
 validateTags :: (MonadError e m, AsCliError e) => S.Set (T.Text, T.Text) -> m (M.Map T.Text T.Text)
 validateTags ts = assertUnique _CliDuplicateTagValues ts
 
-validateParameters :: (AsCliError e, HasParameterSpecs s (f ParameterSpec), Foldable f, MonadError e m) 
-                   => s -> S.Set (T.Text, T.Text) -> m (M.Map T.Text T.Text)
+validateParameters :: (AsCliError e, MonadError e m) => Template -> S.Set (T.Text, T.Text) -> m (M.Map T.Text T.Text)
 validateParameters template params = do
   let paramSpecs = template ^. parameterSpecs
-      requiredParamNames = S.fromList (paramSpecs ^.. folded._Required)
-      allowedParamNames = S.fromList (paramSpecs ^.. folded.parameterKey)
+      requiredParamNames = S.fromList (paramSpecs ^.. _Wrapped.folded._Required)
+      allowedParamNames = S.fromList (paramSpecs ^.. _Wrapped.folded.parameterKey)
 
   uniqueParams <- assertUnique _CliDuplicateParameterValues params
   let missingParamNames = requiredParamNames S.\\ M.keysSet uniqueParams
