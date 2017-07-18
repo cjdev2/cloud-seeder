@@ -28,15 +28,15 @@ newtype ArgumentsT m a = ArgumentsT (ReaderT [String] m a)
            , MonadLogger, MonadFileSystem e, MonadCloud, MonadEnvironment )
 
 -- | Runs a computation with access to a set of command-line arguments.
-stubArgumentsT :: [String] -> ArgumentsT m a -> m a
-stubArgumentsT fake (ArgumentsT x) = runReaderT x fake
+stubCommandLineT :: [String] -> ArgumentsT m a -> m a
+stubCommandLineT fake (ArgumentsT x) = runReaderT x fake
 
 instance (AsArgumentsError e, MonadError e m) => MonadCLI e (ArgumentsT m) where
-  getArgs = ArgumentsT $ do 
+  getArgs = ArgumentsT $ do
     input <- ask
     return $ consume parseArguments $ take 3 input
 
-  getOptions pSpecs = ArgumentsT $ do 
+  getOptions pSpecs = ArgumentsT $ do
     input <- ask
     let x = execParserPure defaultPrefs (parseOptions pSpecs) input
     return $ fromJust $ getParseResult x

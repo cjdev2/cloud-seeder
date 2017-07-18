@@ -78,7 +78,7 @@ instance NFData StackName
 --------------------------------------------------------------------------------
 -- | A class of monads that can access command-line arguments.
 
-data ArgumentsError
+newtype ArgumentsError
   = WrongArity [T.Text]
   deriving (Eq, Show)
 
@@ -92,19 +92,19 @@ class (AsArgumentsError e, MonadError e m) => MonadCLI e m | m -> e where
   getArgs = lift getArgs
 
   -- | Returns flags provided to the program while ignoring positional arguments -- separate from getArgs to avoid cyclical dependencies.
-  getOptions :: S.Set T.Text -> m (M.Map T.Text T.Text)
-  default getOptions :: (MonadTrans t, MonadCLI e m', m ~ t m') => S.Set T.Text -> m (M.Map T.Text T.Text)
+  getOptions :: S.Set ParameterSpec -> m (M.Map T.Text T.Text)
+  default getOptions :: (MonadTrans t, MonadCLI e m', m ~ t m') => S.Set ParameterSpec -> m (M.Map T.Text T.Text)
   getOptions = lift . getOptions
 
-getArgs' :: (AsArgumentsError e, MonadError e m, MonadBase IO m) => m Command 
+getArgs' :: (AsArgumentsError e, MonadError e m, MonadBase IO m) => m Command
 getArgs' = do
-  args <- liftBase $ IO.getArgs
+  args <- liftBase IO.getArgs
   when (length args < 3) $ throwing _WrongArity (map T.pack args)
   liftBase $ consume $ take 3 args
-  where 
-    consume = handleParseResult . execParserPure defaultPrefs parseArguments 
+  where
+    consume = handleParseResult . execParserPure defaultPrefs parseArguments
 
-getOptions' :: MonadBase IO m => S.Set T.Text -> m (M.Map T.Text T.Text)
+getOptions' :: MonadBase IO m => S.Set ParameterSpec -> m (M.Map T.Text T.Text)
 getOptions' = liftBase . execParser . parseOptions
 
 instance MonadCLI e m => MonadCLI e (ExceptT e m)
@@ -126,7 +126,7 @@ whenEnv env x = do
   when (envToDeploy == env) x
 
 --------------------------------------------------------------------------------
-data FileSystemError
+newtype FileSystemError
   = FileNotFound T.Text
   deriving (Eq, Show)
 
@@ -185,16 +185,16 @@ computeChangeset' (StackName stackName) templateBody params tags = do
     env <- ask
     let stackCheckRequest = describeStacks & dStackName ?~ stackName
 
-    uuid <- liftBase $ nextRandom
+    uuid <- liftBase nextRandom
     let changeSetName = "cs-" <> toText uuid -- change set name must begin with a letter
 
     runResourceT . runAWST env $ do
       stackCheckResponse <- IO.trying_ (_StackDoesNotExistError (StackName stackName)) $ send stackCheckRequest
       let changeSet = createChangeSet stackName changeSetName
-            & ccsParameters .~ (map awsParam (M.toList params))
+            & ccsParameters .~ map awsParam (M.toList params)
             & ccsTemplateBody ?~ templateBody
             & ccsCapabilities .~ [CapabilityIAM]
-            & ccsTags .~ (map awsTag (M.toList tags))
+            & ccsTags .~ map awsTag (M.toList tags)
       request <- case stackCheckResponse ^? _Just.dsrsStacks of
         Nothing  -> return $ changeSet & ccsChangeSetType ?~ Create
         Just [_] -> return $ changeSet & ccsChangeSetType ?~ Update

@@ -1,7 +1,7 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeFamilies #-}
 
-module Network.CloudSeeder.Types 
+module Network.CloudSeeder.Types
   ( ParameterSource(..)
   , AsParameterSource(..)
 
@@ -10,11 +10,12 @@ module Network.CloudSeeder.Types
   , ParameterSpec(..)
   , AsParameterSpec(..)
   , ParameterSpecs(..)
+  , parameterKey
 
   , ParameterMap(..)
-  ) where 
+  ) where
 
-import Control.Lens (makeClassyPrisms, makeWrapped)
+import Control.Lens (Lens', lens, makeClassyPrisms, makeWrapped)
 import Data.Aeson.Types (typeMismatch)
 import Data.Yaml (FromJSON(..), Value(..), (.:?))
 
@@ -23,10 +24,10 @@ import qualified Data.Map as M
 import qualified Data.Text as T
 import qualified Data.Set as S
 
-data ParameterSource 
-  = Constant 
+data ParameterSource
+  = Constant
   | Env
-  | Flag 
+  | Flag
   | Outputs
   | PreviousValue
   deriving (Eq, Show, Ord)
@@ -43,31 +44,30 @@ data ParameterSpec
 
 makeClassyPrisms ''ParameterSpec
 
+parameterKey :: Lens' ParameterSpec T.Text
+parameterKey = lens get set
+  where
+    get (Required x) = x
+    get (Optional x _) = x
+
+    set (Required _) x = Required x
+    set (Optional _ y) x = Optional x y
+
+
 newtype ParameterSpecs = ParameterSpecs (S.Set ParameterSpec)
   deriving (Eq, Show, Ord)
 
 makeWrapped ''ParameterSpecs
 
-instance FromJSON ParameterSpecs where 
-  parseJSON (Object pSpecs) = do 
-    ParameterSpecs . S.fromList <$> (mapM parseParamSpec $ H.toList pSpecs)
-    where 
-      parseParamSpec (k, Object pSpec) = do 
-        defVal <- (pSpec .:? "Default")
+instance FromJSON ParameterSpecs where
+  parseJSON (Object pSpecs) =
+    ParameterSpecs . S.fromList <$> mapM parseParamSpec (H.toList pSpecs)
+    where
+      parseParamSpec (k, Object pSpec) = do
+        defVal <- pSpec .:? "Default"
         return $ maybe (Required k) (Optional k) defVal
-      parseParamSpec (k, invalid) = typeMismatch (T.unpack k) invalid 
-  parseJSON invalid = typeMismatch "Parameters" invalid 
-
--- instance FromJSON ParameterSpec where
---   parseJSONList (Object pSpecs) = do 
---     mapM parseParamSpec $ H.toList pSpecs
---     where 
---       parseParamSpec (k, Object pSpec) = do 
---         defVal <- (pSpec .:? "Default")
---         return $ maybe (Required k) (Optional k) defVal
---       parseParamSpec (k, invalid) = typeMismatch (T.unpack k) invalid 
---   parseJSONList invalid = typeMismatch "Parameters" invalid 
---   parseJSON invalid = typeMismatch "Parameters" invalid 
+      parseParamSpec (k, invalid) = typeMismatch (T.unpack k) invalid
+  parseJSON invalid = typeMismatch "Parameters" invalid
 
 newtype ParameterMap = ParameterMap (M.Map T.Text (ParameterSource, T.Text))
   deriving (Eq, Show)
