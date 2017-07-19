@@ -24,6 +24,17 @@ spec = do
             parsed = getParseResult $ runParser parseArguments input
         parsed `shouldBe` Just expected
 
+      it "produces help for --help if not all the arguments are supplied" $ do
+        let input = ["deploy", "stack", "--help"]
+            parsed = getParseResult $ runParser parseArguments input
+        parsed `shouldBe` Nothing
+
+      it "defers help for --help if all the arguments are supplied" $ do
+        let expected = DeployStack "stack" "env"
+            input = command ++ ["--help"]
+            parsed = getParseResult $ runParser parseArguments input
+        parsed `shouldBe` Just expected
+
     describe "optional parsing" $ do
       it "parses an optional parameter" $ do
         let flags = [Optional "foo" "defVal"]

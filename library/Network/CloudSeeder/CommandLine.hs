@@ -81,7 +81,7 @@ data ParsingPhase r where
 -- documentation for 'Network.CloudSeeder.CommandLine'. This is reflected in the
 -- first argument, which also controls the result of the parser.
 deploy :: ParsingPhase r -> Parser r
-deploy phase = subparser . command "deploy" $ info (helper <*> parser) infoMod
+deploy phase = subparser . command "deploy" $ info parser infoMod
   where
     -- When parsing arguments, we want to ignore options. Using 'forwardOptions'
     -- treats them as positional arguments rather than outright ignoring them,
@@ -92,15 +92,20 @@ deploy phase = subparser . command "deploy" $ info (helper <*> parser) infoMod
 
     parser = case phase of
         PhaseArguments -> commandParser <* ignoreArguments
-        PhaseOptions specs -> commandParser *> optionsParser specs
+        PhaseOptions specs -> helper <*> (commandParser *> optionsParser specs)
       where
         ignoreArguments = many $ strArgument @String hidden
 
     commandParser :: Parser Command
-    commandParser = DeployStack <$> stack <*> env
+    commandParser = DeployStack <$> helper' stack <*> helper' env
       where
         stack = textArgument (metavar "STACK")
         env = textArgument (metavar "ENV")
+        -- This is like 'helper', but slightly modified to avoid over-eagerly
+        -- failing. This carefully handles “deferring” showing the help text to
+        -- 'PhaseOptions' if both STACK and ENV are supplied.
+        helper' p = (abortOption ShowHelpText opts <*> empty) <|> p
+          where opts = long "help" <> short 'h' <> internal
 
     optionsParser :: S.Set ParameterSpec -> Parser (M.Map T.Text T.Text)
     optionsParser specs = M.fromList <$> traverse parameter (S.toList specs)
