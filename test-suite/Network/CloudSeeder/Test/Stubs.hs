@@ -31,7 +31,7 @@ newtype ArgumentsT m a = ArgumentsT (ReaderT [String] m a)
 stubCommandLineT :: [String] -> ArgumentsT m a -> m a
 stubCommandLineT fake (ArgumentsT x) = runReaderT x fake
 
-instance (AsArgumentsError e, MonadError e m) => MonadCLI e (ArgumentsT m) where
+instance Monad m => MonadCLI (ArgumentsT m) where
   getArgs = ArgumentsT $ do
     input <- ask
     return $ consume parseArguments $ take 3 input
@@ -49,7 +49,7 @@ consume p = fromJust . getParseResult . execParserPure defaultPrefs p
 
 newtype LoggerT m a = LoggerT (WriterT [ByteString] m a)
   deriving ( Functor, Applicative, Monad, MonadTrans, MonadError e
-           , MonadCLI e, MonadFileSystem e, MonadCloud, MonadEnvironment )
+           , MonadCLI, MonadFileSystem e, MonadCloud, MonadEnvironment )
 
 -- | Runs a computation that may emit log messages, returning the result of the
 -- computation combined with the set of messages logged, in order.
@@ -64,7 +64,7 @@ instance Monad m => MonadLogger (LoggerT m) where
 
 newtype FileSystemT m a = FileSystemT (ReaderT [(T.Text, T.Text)] m a)
   deriving ( Functor, Applicative, Monad, MonadTrans, MonadError e
-           , MonadCLI e, MonadLogger, MonadCloud, MonadEnvironment )
+           , MonadCLI, MonadLogger, MonadCloud, MonadEnvironment )
 
 -- | Runs a computation that may interact with the file system, given a mapping
 -- from file paths to file contents.
@@ -81,7 +81,7 @@ instance (AsFileSystemError e, MonadError e m) => MonadFileSystem e (FileSystemT
 
 newtype EnvironmentT m a = EnvironmentT (ReaderT (M.Map T.Text T.Text) m a)
   deriving ( Functor, Applicative, Monad, MonadTrans, MonadError e
-           , MonadCLI e, MonadLogger, MonadFileSystem e, MonadCloud )
+           , MonadCLI, MonadLogger, MonadFileSystem e, MonadCloud )
 
 stubEnvironmentT :: M.Map T.Text T.Text -> EnvironmentT m a -> m a
 stubEnvironmentT fs (EnvironmentT x) = runReaderT x fs

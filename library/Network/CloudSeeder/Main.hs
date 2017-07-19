@@ -55,7 +55,6 @@ data CliError
   | CliMissingRequiredParameters (S.Set T.Text)
   | CliDuplicateParameterValues (M.Map T.Text [T.Text])
   | CliDuplicateTagValues (M.Map T.Text [T.Text])
-  | CliArgumentsError ArgumentsError
   | CliExtraParameterFlags (S.Set T.Text)
   deriving (Eq, Show)
 
@@ -84,9 +83,6 @@ renderCliError (CliDuplicateParameterValues params)
 renderCliError (CliDuplicateTagValues ts)
   = "the following tags were supplied more than one value:\n"
   <> renderKeysToManyVals ts
-renderCliError (CliArgumentsError (WrongArity args))
-  = "wrong number of arguments provided: " <> T.intercalate ", " args
-  <> "\n Please supply in the form 'COMMAND STACK ENV'"
 renderCliError (CliExtraParameterFlags ts)
   = "parameter flags defined in config that were not present in template:\n"
   <> T.unlines (map (" " <>) (S.toAscList ts))
@@ -108,7 +104,7 @@ instance MonadBaseControl IO AppM where
 instance MonadFileSystem CliError AppM where
   readFile = readFile'
 
-instance MonadCLI CliError AppM where
+instance MonadCLI AppM where
   getArgs = getArgs'
   getOptions = getOptions'
 
@@ -129,10 +125,7 @@ runAppM (AppM x) = do
 instance AsFileSystemError CliError where
   _FileSystemError = _CliFileSystemError
 
-instance AsArgumentsError CliError where
-  _ArgumentsError = _CliArgumentsError
-
-cli :: (MonadCLI CliError m, MonadCloud m, MonadFileSystem CliError m, MonadEnvironment m) => m DeploymentConfiguration -> m ()
+cli :: (MonadCLI m, MonadCloud m, MonadFileSystem CliError m, MonadEnvironment m) => m DeploymentConfiguration -> m ()
 cli mConfig = do
   config <- mConfig
   (DeployStack nameToDeploy env) <- getArgs
@@ -161,7 +154,9 @@ getStackToDeploy config nameToDeploy = do
   let maybeStackToDeploy = config ^. stacks.to (find (has (name.only nameToDeploy)))
   maybe (throwing _CliStackNotConfigured nameToDeploy) return maybeStackToDeploy
 
-getEnvVars :: (MonadError CliError m, MonadEnvironment m) => DeploymentConfiguration -> StackConfiguration -> m (S.Set (T.Text, T.Text))
+getEnvVars
+  :: (AsCliError e, MonadError e m, MonadEnvironment m)
+  => DeploymentConfiguration -> StackConfiguration -> m (S.Set (T.Text, T.Text))
 getEnvVars config stackToDeploy = do
   let requiredGlobalEnvVars = config ^. environmentVariables
       requiredStackEnvVars = stackToDeploy ^. environmentVariables
@@ -169,7 +164,7 @@ getEnvVars config stackToDeploy = do
 
   maybeEnvValues <- mapM (\envVarKey -> (envVarKey,) <$> getEnv envVarKey) requiredEnvVars
   let envVarsOrFailure = runErrors $ traverse (extractResult (,)) maybeEnvValues
-  either (throwError . CliMissingEnvVars . sort) (return . S.fromList) envVarsOrFailure
+  either (throwing _CliMissingEnvVars . sort) (return . S.fromList) envVarsOrFailure
 
 decodeTemplate :: (AsCliError e, MonadError e m) => T.Text -> m Template
 decodeTemplate templateBody = do
@@ -194,7 +189,9 @@ getTags config stackToDeploy env appName = baseTags <> globalTags <> localTags
     globalTags = config ^. tagSet
     localTags = stackToDeploy ^. tagSet
 
-getPassedParameters :: (AsCliError e, MonadCLI e m) => DeploymentConfiguration -> StackConfiguration -> S.Set ParameterSpec -> m (S.Set (T.Text, T.Text))
+getPassedParameters
+  :: (AsCliError e, MonadError e m, MonadCLI m)
+  => DeploymentConfiguration -> StackConfiguration -> S.Set ParameterSpec -> m (S.Set (T.Text, T.Text))
 getPassedParameters config stackToDeploy paramSpecs = do
   let globalParamSources = config ^. parameterSources
       localParamSources = stackToDeploy ^. parameterSources
@@ -216,8 +213,9 @@ collectParameters config stackToDeploy envVars env passedParams outputs =
       localParams = stackToDeploy ^. parameters
   in globalParams <> localParams <> outputs <> envVars <> [("Env", env)] <> passedParams
 
-getParameters :: (MonadCLI CliError m, MonadEnvironment m, MonadCloud m)
-              => DeploymentConfiguration -> StackConfiguration -> S.Set ParameterSpec -> [T.Text] -> T.Text -> T.Text -> m (S.Set (T.Text, T.Text))
+getParameters
+  :: (AsCliError e, MonadError e m, MonadCLI m, MonadEnvironment m, MonadCloud m)
+  => DeploymentConfiguration -> StackConfiguration -> S.Set ParameterSpec -> [T.Text] -> T.Text -> T.Text -> m (S.Set (T.Text, T.Text))
 getParameters config stackToDeploy paramSpecs dependencies env appName = do
   envVars <- getEnvVars config stackToDeploy
   outputs <- getOutputs dependencies env appName

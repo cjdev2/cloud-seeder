@@ -4,9 +4,6 @@
 
 module Network.CloudSeeder.Interfaces
   ( MonadCLI(..)
-  , ArgumentsError(..)
-  , HasArgumentsError(..)
-  , AsArgumentsError(..)
   , getArgs'
   , getOptions'
   , whenEnv
@@ -59,8 +56,7 @@ import Network.AWS.CloudFormation.DescribeChangeSet (describeChangeSet, drsExecu
 import Network.AWS.CloudFormation.DescribeStacks (dStackName, dsrsStacks, describeStacks)
 import Network.AWS.CloudFormation.ExecuteChangeSet (executeChangeSet)
 import Network.AWS.CloudFormation.Types (Capability(..), ChangeSetType(..), ExecutionStatus(..), Output, oOutputKey, oOutputValue, parameter, pParameterKey, pParameterValue, sOutputs, tag, tagKey, tagValue)
-import Options.Applicative (execParser, execParserPure, defaultPrefs, handleParseResult)
-import System.Environment (lookupEnv)
+import Options.Applicative (execParser)
 
 import qualified Data.Map as M
 import qualified Data.Set as S
@@ -78,49 +74,37 @@ instance NFData StackName
 --------------------------------------------------------------------------------
 -- | A class of monads that can access command-line arguments.
 
-newtype ArgumentsError
-  = WrongArity [T.Text]
-  deriving (Eq, Show)
-
-makeClassy ''ArgumentsError
-makeClassyPrisms ''ArgumentsError
-
-class (AsArgumentsError e, MonadError e m) => MonadCLI e m | m -> e where
+class Monad m => MonadCLI m where
   -- | Returns positional arguments provided to the program while ignoring flags -- separate from getOptions to avoid cyclical dependencies.
   getArgs :: m Command
-  default getArgs :: (MonadTrans t, MonadCLI e m', m ~ t m') => m Command
+  default getArgs :: (MonadTrans t, MonadCLI m', m ~ t m') => m Command
   getArgs = lift getArgs
 
   -- | Returns flags provided to the program while ignoring positional arguments -- separate from getArgs to avoid cyclical dependencies.
   getOptions :: S.Set ParameterSpec -> m (M.Map T.Text T.Text)
-  default getOptions :: (MonadTrans t, MonadCLI e m', m ~ t m') => S.Set ParameterSpec -> m (M.Map T.Text T.Text)
+  default getOptions :: (MonadTrans t, MonadCLI m', m ~ t m') => S.Set ParameterSpec -> m (M.Map T.Text T.Text)
   getOptions = lift . getOptions
 
-getArgs' :: (AsArgumentsError e, MonadError e m, MonadBase IO m) => m Command
-getArgs' = do
-  args <- liftBase IO.getArgs
-  when (length args < 3) $ throwing _WrongArity (map T.pack args)
-  liftBase $ consume $ take 3 args
-  where
-    consume = handleParseResult . execParserPure defaultPrefs parseArguments
+getArgs' :: MonadBase IO m => m Command
+getArgs' = liftBase $ execParser parseArguments
 
 getOptions' :: MonadBase IO m => S.Set ParameterSpec -> m (M.Map T.Text T.Text)
 getOptions' = liftBase . execParser . parseOptions
 
-instance MonadCLI e m => MonadCLI e (ExceptT e m)
-instance MonadCLI e m => MonadCLI e (LoggingT m)
-instance MonadCLI e m => MonadCLI e (ReaderT r m)
-instance MonadCLI e m => MonadCLI e (StateT s m)
-instance (Monoid s, MonadCLI e m) => MonadCLI e (WriterT s m)
+instance MonadCLI m => MonadCLI (ExceptT e m)
+instance MonadCLI m => MonadCLI (LoggingT m)
+instance MonadCLI m => MonadCLI (ReaderT r m)
+instance MonadCLI m => MonadCLI (StateT s m)
+instance (Monoid s, MonadCLI m) => MonadCLI (WriterT s m)
 
 -- DSL helpers
 
-getEnvArg :: MonadCLI e m => m T.Text
+getEnvArg :: MonadCLI m => m T.Text
 getEnvArg = do
   (DeployStack _ env) <- getArgs
   return env
 
-whenEnv :: MonadCLI e m => T.Text -> m () -> m ()
+whenEnv :: MonadCLI m => T.Text -> m () -> m ()
 whenEnv env x = do
   envToDeploy <- getEnvArg
   when (envToDeploy == env) x
@@ -258,7 +242,7 @@ class Monad m => MonadEnvironment m where
   getEnv = lift . getEnv
 
 instance MonadEnvironment IO where
-  getEnv = fmap (fmap T.pack) . lookupEnv . T.unpack
+  getEnv = fmap (fmap T.pack) . IO.lookupEnv . T.unpack
 
 instance MonadEnvironment m => MonadEnvironment (ExceptT e m)
 instance MonadEnvironment m => MonadEnvironment (LoggingT m)

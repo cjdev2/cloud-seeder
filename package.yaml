@@ -42,6 +42,7 @@ default-extensions:
 - ScopedTypeVariables
 - StandaloneDeriving
 - TupleSections
+- TypeApplications
 - TypeOperators
 
 library:
@@ -59,7 +60,7 @@ library:
   - monad-control >= 1.0.0.0
   - monad-logger >= 0.3.11.1
   - mtl
-  - optparse-applicative >= 0.13.0.0
+  - optparse-applicative >= 0.14.0.0
   - text
   - transformers
   - transformers-base

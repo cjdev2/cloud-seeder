@@ -5,6 +5,7 @@ packages:
 
 extra-deps:
 - monad-mock-0.1.1.0
+- optparse-applicative-0.14.0.0
 
 flags: {}
 
