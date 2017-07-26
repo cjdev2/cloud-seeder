@@ -1,5 +1,5 @@
 name: cloud-seeder
-version: 0.0.0.0
+version: 0.1.0.0
 category: Cloud
 synopsis: A tool for interacting with AWS CloudFormation
 description: |
@@ -56,7 +56,6 @@ library:
   - deepseq >= 1.4.1.0
   - exceptions >= 0.6
   - lens
-  - lens-aeson
   - monad-control >= 1.0.0.0
   - monad-logger >= 0.3.11.1
   - mtl
@@ -65,8 +64,8 @@ library:
   - transformers
   - transformers-base
   - unordered-containers
-  - uuid
-  - yaml
+  - uuid >= 1.2.6 && < 2
+  - yaml >= 0.8
   source-dirs: library
 
 tests:
