@@ -15,9 +15,10 @@ module Network.CloudSeeder.Types
   , ParameterMap(..)
   ) where
 
+import Control.Applicative ((<|>))
 import Control.Lens (Lens', lens, makeClassyPrisms, makeWrapped)
 import Data.Aeson.Types (typeMismatch)
-import Data.Yaml (FromJSON(..), Value(..), (.:?))
+import Data.Yaml (FromJSON(..), Parser, Value(..), (.:?))
 
 import qualified Data.HashMap.Strict as H
 import qualified Data.Map as M
@@ -64,7 +65,11 @@ instance FromJSON ParameterSpecs where
     ParameterSpecs . S.fromList <$> mapM parseParamSpec (H.toList pSpecs)
     where
       parseParamSpec (k, Object pSpec) = do
-        defVal <- pSpec .:? "Default"
+        let defParser :: FromJSON a => Parser (Maybe a)
+            defParser = pSpec .:? "Default"
+        defVal <- defParser
+              -- try parsing as a double if parsing fails as a string
+              <|> fmap (fmap (T.pack . show)) (defParser @Double)
         return $ maybe (Required k) (Optional k) defVal
       parseParamSpec (k, invalid) = typeMismatch (T.unpack k) invalid
   parseJSON invalid = typeMismatch "Parameters" invalid
