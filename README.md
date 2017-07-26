@@ -77,7 +77,7 @@ We can now add `cdn` to our deployment configuration:
 
 import Network.CloudSeeder
 
-main = cliIO $ deployment "cloud-seeder-example" $ do
+main = deployment "cloud-seeder-example" $ do
   stack "bucket" $ do
     flag "BucketName"
 
