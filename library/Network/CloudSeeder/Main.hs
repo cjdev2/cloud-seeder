@@ -128,29 +128,29 @@ instance AsFileSystemError CliError where
 cli :: (MonadCLI m, MonadCloud m, MonadFileSystem CliError m, MonadEnvironment m) => m DeploymentConfiguration -> m ()
 cli mConfig = do
   config <- mConfig
-  (DeployStack nameToDeploy env) <- getArgs
+  (ProvisionStack nameToProvision env) <- getArgs
 
-  let dependencies = takeWhile (/= nameToDeploy) (config ^.. stacks.each.name)
+  let dependencies = takeWhile (/= nameToProvision) (config ^.. stacks.each.name)
       appName = config ^. name
 
-  stackToDeploy <- getStackToDeploy config nameToDeploy
+  stackToProvision <- getStackToProvision config nameToProvision
 
-  templateBody <- readFile $ nameToDeploy <> ".yaml"
+  templateBody <- readFile $ nameToProvision <> ".yaml"
   template <- decodeTemplate templateBody
 
-  let paramSources = (config ^. parameterSources) <> (stackToDeploy ^. parameterSources)
+  let paramSources = (config ^. parameterSources) <> (stackToProvision ^. parameterSources)
       paramSpecs = template ^. parameterSpecs._Wrapped
   allParams <- getParameters paramSources paramSpecs dependencies env appName
-  allTags <- getTags config stackToDeploy env appName
+  allTags <- getTags config stackToProvision env appName
 
-  let fullStackName = mkFullStackName env appName nameToDeploy
+  let fullStackName = mkFullStackName env appName nameToProvision
   csId <- computeChangeset fullStackName templateBody allParams allTags
   runChangeSet csId
 
-getStackToDeploy :: (AsCliError e, MonadError e m) => DeploymentConfiguration -> T.Text -> m StackConfiguration
-getStackToDeploy config nameToDeploy = do
-  let maybeStackToDeploy = config ^. stacks.to (find (has (name.only nameToDeploy)))
-  maybe (throwing _CliStackNotConfigured nameToDeploy) return maybeStackToDeploy
+getStackToProvision :: (AsCliError e, MonadError e m) => DeploymentConfiguration -> T.Text -> m StackConfiguration
+getStackToProvision config nameToProvision = do
+  let maybeStackToProvision = config ^. stacks.to (find (has (name.only nameToProvision)))
+  maybe (throwing _CliStackNotConfigured nameToProvision) return maybeStackToProvision
 
 decodeTemplate :: (AsCliError e, MonadError e m) => T.Text -> m Template
 decodeTemplate templateBody = do
@@ -161,13 +161,13 @@ mkFullStackName :: T.Text -> T.Text -> T.Text -> StackName
 mkFullStackName env appName stackName = StackName $ env <> "-" <> appName <> "-" <> stackName
 
 getTags :: (MonadError e m, AsCliError e) => DeploymentConfiguration -> StackConfiguration -> T.Text -> T.Text -> m (M.Map T.Text T.Text)
-getTags config stackToDeploy env appName =
+getTags config stackToProvision env appName =
    assertUnique _CliDuplicateTagValues (baseTags <> globalTags <> localTags)
   where
     baseTags :: S.Set (T.Text, T.Text)
     baseTags = [("cj:environment", env), ("cj:application", appName)]
     globalTags = config ^. tagSet
-    localTags = stackToDeploy ^. tagSet
+    localTags = stackToProvision ^. tagSet
 
 -- | Fetches parameter values for all param sources, handling potential errors
 -- and misconfigurations.

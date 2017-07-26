@@ -1,10 +1,10 @@
 {-|
 This module implements command-line parsing for cloud-seeder. The core
 command-line interface, from the user’s point of view, is simple: there are a
-set of subcommands (such as “deploy”) that take various positional arguments and
-flags. Internally, however, the parsing is a little more complex, and this is
-because we want to use the user’s deployment configuration to /generate/ a set
-of options that may be supplied.
+set of subcommands (such as “provision”) that take various positional arguments
+and flags. Internally, however, the parsing is a little more complex, and this
+is because we want to use the user’s deployment configuration to /generate/ a
+set of options that may be supplied.
 
 For example, if the user specifies the following configuration:
 
@@ -47,46 +47,46 @@ import qualified Data.Text as T
 import Network.CloudSeeder.Types
 
 data Command
-  -- | @'DeployStack' "stack" "env"@
-  = DeployStack T.Text T.Text
+  -- | @'ProvisionStack' "stack" "env"@
+  = ProvisionStack T.Text T.Text
   deriving (Eq, Show)
 
--- | A parser that corresponds to the first “parsing phase” for the @deploy@
+-- | A parser that corresponds to the first “parsing phase” for the @provision@
 -- subcommand, as described in the module documentation for
 -- 'Network.CloudSeeder.CommandLine'.
 parseArguments :: ParserInfo Command
 parseArguments = program PhaseArguments
 
--- | A parser that corresponds to the second “parsing phase” for the @deploy@
+-- | A parser that corresponds to the second “parsing phase” for the @provision@
 -- subcommand, as described in the module documentation for
 -- 'Network.CloudSeeder.CommandLine'.
 parseOptions :: S.Set ParameterSpec -> ParserInfo (M.Map T.Text T.Text)
 parseOptions = program . PhaseOptions
 
 program :: ParsingPhase r -> ParserInfo r
-program phase = info (helper <*> deploy phase)
+program phase = info (helper <*> provision phase)
   (fullDesc <> progDesc "Manage stacks in CloudFormation")
 
 -- | Represents the current “parsing phase”, as described in the module
 -- documentation for 'Network.CloudSeeder.CommandLine'. Used to parameterize
--- the 'deploy' parser.
+-- the 'provision' parser.
 data ParsingPhase r where
   PhaseArguments :: ParsingPhase Command
   PhaseOptions :: S.Set ParameterSpec -> ParsingPhase (M.Map T.Text T.Text)
 
--- | Parser for the 'deploy' subcommand, which parses a 'DeployStack' value if
--- it succeeds.
+-- | Parser for the 'provision' subcommand, which parses a 'ProvisionStack'
+-- value if it succeeds.
 --
 -- This parsers has two “phases” of parsing, as noted in the module
 -- documentation for 'Network.CloudSeeder.CommandLine'. This is reflected in the
 -- first argument, which also controls the result of the parser.
-deploy :: ParsingPhase r -> Parser r
-deploy phase = subparser . command "deploy" $ info parser infoMod
+provision :: ParsingPhase r -> Parser r
+provision phase = subparser . command "provision" $ info parser infoMod
   where
     -- When parsing arguments, we want to ignore options. Using 'forwardOptions'
     -- treats them as positional arguments rather than outright ignoring them,
     -- but that’s good enough for our purposes.
-    infoMod = progDesc "Deploy a stack to an environment" <> case phase of
+    infoMod = progDesc "Provision a stack in an environment" <> case phase of
       PhaseArguments -> forwardOptions
       PhaseOptions _ -> mempty
 
@@ -97,7 +97,7 @@ deploy phase = subparser . command "deploy" $ info parser infoMod
         ignoreArguments = many $ strArgument @String hidden
 
     commandParser :: Parser Command
-    commandParser = DeployStack <$> helper' stack <*> helper' env
+    commandParser = ProvisionStack <$> helper' stack <*> helper' env
       where
         stack = textArgument (metavar "STACK")
         env = textArgument (metavar "ENV")

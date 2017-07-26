@@ -11,26 +11,26 @@ spec = do
       runParser = execParserPure defaultPrefs
 
   describe "Command line" $ do
-    let command = ["deploy", "stack", "env"]
+    let command = ["provision", "stack", "env"]
     describe "argument parsing" $ do
       it "parses a command with no options after" $ do
-        let expected = DeployStack "stack" "env"
+        let expected = ProvisionStack "stack" "env"
             parsed = getParseResult $ runParser parseArguments command
         parsed `shouldBe` Just expected
 
       it "parses a command and ignores any provided options" $ do
-        let expected = DeployStack "stack" "env"
+        let expected = ProvisionStack "stack" "env"
             input = command ++ ["--foo", "val"]
             parsed = getParseResult $ runParser parseArguments input
         parsed `shouldBe` Just expected
 
       it "produces help for --help if not all the arguments are supplied" $ do
-        let input = ["deploy", "stack", "--help"]
+        let input = ["provision", "stack", "--help"]
             parsed = getParseResult $ runParser parseArguments input
         parsed `shouldBe` Nothing
 
       it "defers help for --help if all the arguments are supplied" $ do
-        let expected = DeployStack "stack" "env"
+        let expected = ProvisionStack "stack" "env"
             input = command ++ ["--help"]
             parsed = getParseResult $ runParser parseArguments input
         parsed `shouldBe` Just expected

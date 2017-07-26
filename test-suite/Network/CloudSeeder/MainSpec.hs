@@ -34,8 +34,8 @@ spec =
                     <> "    Type: String\n"
         rootExpectedTags = [("cj:application", "foo"), ("cj:environment", "test")]
         rootParams = [("Env", "test")]
-        serverTestArgs = ["deploy", "server", "test"]
-        baseTestArgs = ["deploy", "base", "test"]
+        serverTestArgs = ["provision", "server", "test"]
+        baseTestArgs = ["provision", "base", "test"]
 
     let stubExceptT :: ExceptT CliError m a -> m (Either CliError a)
         stubExceptT = runExceptT
@@ -65,7 +65,7 @@ spec =
 
     it "fails if user attempts to deploy a stack that doesn't exist in the config" $ do
       let config = deployment "foo" $ stack_ "base"
-          fakeCliInput = ["deploy", "foo", "test"]
+          fakeCliInput = ["provision", "foo", "test"]
       runFailure _CliStackNotConfigured "foo" $ cli config
         & stubFileSystemT
           [ ("base.yaml", rootTemplate)]
@@ -143,7 +143,7 @@ spec =
           & stubFileSystemT
             [ ("frontend.yaml", frontendtemplate) ]
           & stubEnvironmentT []
-          & stubCommandLineT ["deploy", "frontend", "test"]
+          & stubCommandLineT ["provision", "frontend", "test"]
           & stubExceptT
           & mockCloudT
             [ GetStackOutputs "test-foo-base" :-> Just baseOutputs
@@ -161,7 +161,7 @@ spec =
           & stubFileSystemT
             [ ("frontend.yaml", rootTemplate) ]
           & stubEnvironmentT []
-          & stubCommandLineT ["deploy", "frontend", "test"]
+          & stubCommandLineT ["provision", "frontend", "test"]
           & stubExceptT
           & mockCloudT
             [ GetStackOutputs "test-foo-base" :-> Nothing
@@ -171,7 +171,7 @@ spec =
           & stubFileSystemT
             [ ("frontend.yaml", rootTemplate) ]
           & stubEnvironmentT []
-          & stubCommandLineT ["deploy", "frontend", "test"]
+          & stubCommandLineT ["provision", "frontend", "test"]
           & stubExceptT
           & mockCloudT
             [ GetStackOutputs "test-foo-base" :-> Just []
@@ -181,7 +181,7 @@ spec =
           & stubFileSystemT
             [ ("frontend.yaml", rootTemplate) ]
           & stubEnvironmentT []
-          & stubCommandLineT ["deploy", "frontend", "test"]
+          & stubCommandLineT ["provision", "frontend", "test"]
           & stubExceptT
           & mockCloudT
             [ GetStackOutputs "test-foo-base" :-> Nothing
@@ -357,7 +357,7 @@ spec =
             & stubFileSystemT
               [ ("base.yaml", template) ]
             & stubEnvironmentT []
-            & stubCommandLineT ["deploy", "base", "prod"]
+            & stubCommandLineT ["provision", "base", "prod"]
             & stubExceptT
             & mockCloudT
               [ ComputeChangeset "prod-foo-base" template expectedParams expectedTags :-> "csid"
@@ -390,7 +390,7 @@ spec =
           & stubFileSystemT
             [ ("base.yaml", template) ]
           & stubEnvironmentT []
-          & stubCommandLineT ["deploy", "base", "test", "--baz", "zab"]
+          & stubCommandLineT ["provision", "base", "test", "--baz", "zab"]
           & stubExceptT
           & mockCloudT
             [ ComputeChangeset "test-foo-base" template (rootParams <> [("baz", "zab")]) rootExpectedTags :-> "csid"
@@ -401,7 +401,7 @@ spec =
           & stubFileSystemT
             [ ("base.yaml", template) ]
           & stubEnvironmentT []
-          & stubCommandLineT ["deploy", "base", "test"]
+          & stubCommandLineT ["provision", "base", "test"]
           & stubExceptT
           & mockCloudT
             [ ComputeChangeset "test-foo-base" template (rootParams <> [("baz", "prod")]) rootExpectedTags :-> "csid"
@@ -416,6 +416,6 @@ spec =
               [ ("base.yaml", template) ]
             & stubEnvironmentT []
             & stubCommandLineT
-              ["deploy", "base", "test", "--foo", "oof", "--bar", "rab", "--baz", "zab"]
+              ["provision", "base", "test", "--foo", "oof", "--bar", "rab", "--baz", "zab"]
             & stubExceptT
             & mockCloudT []

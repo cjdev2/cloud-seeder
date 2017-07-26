@@ -101,13 +101,13 @@ instance (Monoid s, MonadCLI m) => MonadCLI (WriterT s m)
 
 getEnvArg :: MonadCLI m => m T.Text
 getEnvArg = do
-  (DeployStack _ env) <- getArgs
+  (ProvisionStack _ env) <- getArgs
   return env
 
 whenEnv :: MonadCLI m => T.Text -> m () -> m ()
 whenEnv env x = do
-  envToDeploy <- getEnvArg
-  when (envToDeploy == env) x
+  envToProvision <- getEnvArg
+  when (envToProvision == env) x
 
 --------------------------------------------------------------------------------
 newtype FileSystemError
