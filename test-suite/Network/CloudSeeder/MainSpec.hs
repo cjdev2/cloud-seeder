@@ -74,6 +74,22 @@ spec =
         & stubExceptT
         & mockCloudT []
 
+    it "fails if parameters required in the template are not supplied" $ do
+      let baseTemplate =
+               rootTemplate
+            <> "  foo:\n"
+            <> "    Type: String\n"
+            <> "  bar:\n"
+            <> "    Type: String\n"
+          config = deployment "foo" $ do
+            stack_ "base"
+      runFailure _CliMissingRequiredParameters ["foo", "bar"] $ cli config
+        & stubFileSystemT [ ("base.yaml", baseTemplate) ]
+        & stubEnvironmentT []
+        & stubCommandLineT baseTestArgs
+        & stubExceptT
+        & mockCloudT []
+
     context "the configuration does not have environment variables" $ do
       let config = deployment "foo" $ do
             stack_ "base"
@@ -390,3 +406,16 @@ spec =
           & mockCloudT
             [ ComputeChangeset "test-foo-base" template (rootParams <> [("baz", "prod")]) rootExpectedTags :-> "csid"
             , RunChangeSet "csid" :-> () ]
+
+      it "raises an error if a flag is provided that does not exist in the template" $
+        let config' = deployment "foo" $ do
+              mapM_ flag (["foo", "bar", "baz"] :: [T.Text])
+              stack_ "base"
+        in runFailure _CliExtraParameterFlags ["foo", "bar"] $ cli config'
+            & stubFileSystemT
+              [ ("base.yaml", template) ]
+            & stubEnvironmentT []
+            & stubCommandLineT
+              ["deploy", "base", "test", "--foo", "oof", "--bar", "rab", "--baz", "zab"]
+            & stubExceptT
+            & mockCloudT []

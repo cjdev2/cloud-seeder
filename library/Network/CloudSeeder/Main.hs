@@ -12,7 +12,7 @@ module Network.CloudSeeder.Main
   ) where
 
 import Control.Applicative.Lift (Errors, failure, runErrors)
-import Control.Lens (Prism', _1, _2, _Wrapped, (^.), (^..), each, filtered, folded, makeClassy, makeClassyPrisms, has, only, to)
+import Control.Lens (Getting, Prism', (^.), (^..), _1, _2, _Wrapped, anyOf, aside, each, filtered, folded, makeClassy, makeClassyPrisms, has, only, to)
 import Control.Monad (unless)
 import Control.Monad.Base (MonadBase)
 import Control.Monad.Catch (MonadCatch, MonadThrow)
@@ -25,7 +25,7 @@ import Control.Monad.Trans.Control (MonadBaseControl(..))
 import Data.Function (on)
 import Data.List (find, groupBy, sort)
 import Data.Text.Encoding (encodeUtf8)
-import Data.Semigroup ((<>))
+import Data.Semigroup (Endo, (<>))
 import Data.Yaml (decodeEither)
 import Network.AWS (Credentials(Discover), Env, newEnv)
 import System.Exit (exitFailure)
@@ -138,15 +138,13 @@ cli mConfig = do
   templateBody <- readFile $ nameToDeploy <> ".yaml"
   template <- decodeTemplate templateBody
 
-  let paramSpecs = template ^. parameterSpecs._Wrapped
-  allParams <- getParameters config stackToDeploy paramSpecs dependencies env appName
-  validParams <- validateParameters paramSpecs allParams
-
-  let stackTags = getTags config stackToDeploy env appName
-  validTags <- validateTags stackTags
+  let paramSources = (config ^. parameterSources) <> (stackToDeploy ^. parameterSources)
+      paramSpecs = template ^. parameterSpecs._Wrapped
+  allParams <- getParameters paramSources paramSpecs dependencies env appName
+  allTags <- getTags config stackToDeploy env appName
 
   let fullStackName = mkFullStackName env appName nameToDeploy
-  csId <- computeChangeset fullStackName templateBody validParams validTags
+  csId <- computeChangeset fullStackName templateBody allParams allTags
   runChangeSet csId
 
 getStackToDeploy :: (AsCliError e, MonadError e m) => DeploymentConfiguration -> T.Text -> m StackConfiguration
@@ -154,99 +152,85 @@ getStackToDeploy config nameToDeploy = do
   let maybeStackToDeploy = config ^. stacks.to (find (has (name.only nameToDeploy)))
   maybe (throwing _CliStackNotConfigured nameToDeploy) return maybeStackToDeploy
 
-getEnvVars
-  :: (AsCliError e, MonadError e m, MonadEnvironment m)
-  => DeploymentConfiguration -> StackConfiguration -> m (S.Set (T.Text, T.Text))
-getEnvVars config stackToDeploy = do
-  let requiredGlobalEnvVars = config ^. environmentVariables
-      requiredStackEnvVars = stackToDeploy ^. environmentVariables
-      requiredEnvVars = requiredGlobalEnvVars ++ requiredStackEnvVars
-
-  maybeEnvValues <- mapM (\envVarKey -> (envVarKey,) <$> getEnv envVarKey) requiredEnvVars
-  let envVarsOrFailure = runErrors $ traverse (extractResult (,)) maybeEnvValues
-  either (throwing _CliMissingEnvVars . sort) (return . S.fromList) envVarsOrFailure
-
 decodeTemplate :: (AsCliError e, MonadError e m) => T.Text -> m Template
 decodeTemplate templateBody = do
   let decodeOrFailure = decodeEither (encodeUtf8 templateBody) :: Either String Template
   either (throwing _CliTemplateDecodeFail) return decodeOrFailure
 
-getOutputs :: (AsCliError e, MonadError e m, MonadCloud m, Traversable t)
-           => t T.Text -> T.Text -> T.Text -> m (S.Set (T.Text, T.Text))
-getOutputs dependencies env appName = do
-  maybeOutputs <- mapM (\stackName -> (stackName,) <$> getStackOutputs (mkFullStackName env appName stackName)) dependencies
-  let outputsOrFailure = runErrors $ traverse (extractResult (flip const)) maybeOutputs
-  either (throwing _CliMissingDependencyStacks) (return . S.fromList . concatMap M.toList) outputsOrFailure
-
 mkFullStackName :: T.Text -> T.Text -> T.Text -> StackName
 mkFullStackName env appName stackName = StackName $ env <> "-" <> appName <> "-" <> stackName
 
-getTags :: DeploymentConfiguration -> StackConfiguration -> T.Text -> T.Text -> S.Set (T.Text, T.Text)
-getTags config stackToDeploy env appName = baseTags <> globalTags <> localTags
+getTags :: (MonadError e m, AsCliError e) => DeploymentConfiguration -> StackConfiguration -> T.Text -> T.Text -> m (M.Map T.Text T.Text)
+getTags config stackToDeploy env appName =
+   assertUnique _CliDuplicateTagValues (baseTags <> globalTags <> localTags)
   where
     baseTags :: S.Set (T.Text, T.Text)
     baseTags = [("cj:environment", env), ("cj:application", appName)]
     globalTags = config ^. tagSet
     localTags = stackToDeploy ^. tagSet
 
-getPassedParameters
-  :: (AsCliError e, MonadError e m, MonadCLI m)
-  => DeploymentConfiguration -> StackConfiguration -> S.Set ParameterSpec -> m (S.Set (T.Text, T.Text))
-getPassedParameters config stackToDeploy paramSpecs = do
-  let globalParamSources = config ^. parameterSources
-      localParamSources = stackToDeploy ^. parameterSources
-      allParamSources = globalParamSources <> localParamSources
-
-      paramFlags = S.fromList $ allParamSources ^.. folded.filtered (has (_2._Flag))._1
-      flaggedParamSpecs = S.fromList $ paramSpecs ^.. folded.filtered (\s -> s ^. parameterKey `elem` paramFlags)
-
-      paramSpecNames = S.fromList $ paramSpecs ^.. folded.parameterKey
-      paramFlagsNotInTemplate = S.fromList $ paramFlags ^.. folded.filtered (`notElem` paramSpecNames)
-
-  unless (S.null paramFlagsNotInTemplate) $
-    throwing _CliExtraParameterFlags paramFlagsNotInTemplate
-  S.fromList . M.toList <$> getOptions flaggedParamSpecs
-
-collectParameters :: DeploymentConfiguration -> StackConfiguration -> S.Set (T.Text, T.Text) -> T.Text -> S.Set (T.Text, T.Text) -> S.Set (T.Text, T.Text) -> S.Set (T.Text, T.Text)
-collectParameters config stackToDeploy envVars env passedParams outputs =
-  let globalParams = config ^. parameters
-      localParams = stackToDeploy ^. parameters
-  in globalParams <> localParams <> outputs <> envVars <> [("Env", env)] <> passedParams
-
+-- | Fetches parameter values for all param sources, handling potential errors
+-- and misconfigurations.
 getParameters
-  :: (AsCliError e, MonadError e m, MonadCLI m, MonadEnvironment m, MonadCloud m)
-  => DeploymentConfiguration -> StackConfiguration -> S.Set ParameterSpec -> [T.Text] -> T.Text -> T.Text -> m (S.Set (T.Text, T.Text))
-getParameters config stackToDeploy paramSpecs dependencies env appName = do
-  envVars <- getEnvVars config stackToDeploy
-  outputs <- getOutputs dependencies env appName
-  passedParams <- getPassedParameters config stackToDeploy paramSpecs
-  return $ collectParameters config stackToDeploy envVars env passedParams outputs
+  :: forall e m. (AsCliError e, MonadError e m, MonadCLI m, MonadEnvironment m, MonadCloud m)
+  => S.Set (T.Text, ParameterSource) -- ^ parameter sources to fetch values for
+  -> S.Set ParameterSpec -- ^ parameter specs from the template currently being deployed
+  -> [T.Text] -- ^ names of stack dependencies
+  -> T.Text -- ^ name of environment being deployed to
+  -> T.Text -- ^ name of application being deployed
+  -> m (M.Map T.Text T.Text)
+getParameters paramSources paramSpecs dependencies env appName = do
+    let constants = paramSources ^..* folded.aside _Constant
+    fetchedParams <- S.unions <$> sequence [envVars, flags, outputs]
+    let allParams = S.insert ("Env", env) (constants <> fetchedParams)
+    validateParameters allParams
+  where
+    envVars :: m (S.Set (T.Text, T.Text))
+    envVars = do
+      let requiredEnvVars = paramSources ^.. folded.filtered (has (_2._Env))._1
+      maybeEnvValues <- mapM (\envVarKey -> (envVarKey,) <$> getEnv envVarKey) requiredEnvVars
+      let envVarsOrFailure = runErrors $ traverse (extractResult (,)) maybeEnvValues
+      either (throwing _CliMissingEnvVars . sort) (return . S.fromList) envVarsOrFailure
 
-validateTags :: (MonadError e m, AsCliError e) => S.Set (T.Text, T.Text) -> m (M.Map T.Text T.Text)
-validateTags = assertUnique _CliDuplicateTagValues
+    flags :: m (S.Set (T.Text, T.Text))
+    flags = do
+      let paramFlags = paramSources ^..* folded.filtered (has (_2._Flag))._1
+          flaggedParamSpecs = paramSpecs ^..* folded.filtered (anyOf parameterKey (`elem` paramFlags))
 
-validateParameters :: (AsCliError e, MonadError e m) => S.Set ParameterSpec -> S.Set (T.Text, T.Text) -> m (M.Map T.Text T.Text)
-validateParameters paramSpecs params = do
-  let requiredParamNames = S.fromList (paramSpecs ^.. folded._Required)
-      allowedParamNames = S.fromList (paramSpecs ^.. folded.parameterKey)
+          paramSpecNames = paramSpecs ^..* folded.parameterKey
+          paramFlagsNotInTemplate = paramFlags ^..* folded.filtered (`notElem` paramSpecNames)
 
-  uniqueParams <- assertUnique _CliDuplicateParameterValues params
-  let missingParamNames = requiredParamNames S.\\ M.keysSet uniqueParams
-  unless (S.null missingParamNames) $
-    throwing _CliMissingRequiredParameters missingParamNames
+      unless (S.null paramFlagsNotInTemplate) $
+        throwing _CliExtraParameterFlags paramFlagsNotInTemplate
+      S.fromList . M.toList <$> getOptions flaggedParamSpecs
 
-  return $ uniqueParams `M.intersection` M.fromSet (const ()) allowedParamNames
+    outputs :: m (S.Set (T.Text, T.Text))
+    outputs = do
+      maybeOutputs <- mapM (\stackName -> (stackName,) <$> getStackOutputs (mkFullStackName env appName stackName)) dependencies
+      let outputsOrFailure = runErrors $ traverse (extractResult (flip const)) maybeOutputs
+      either (throwing _CliMissingDependencyStacks) (return . S.fromList . concatMap M.toList) outputsOrFailure
+
+    validateParameters :: S.Set (T.Text, T.Text) -> m (M.Map T.Text T.Text)
+    validateParameters params = do
+      let requiredParamNames = paramSpecs ^..* folded._Required
+          allowedParamNames = paramSpecs ^..* folded.parameterKey
+
+      uniqueParams <- assertUnique _CliDuplicateParameterValues params
+      let missingParamNames = requiredParamNames S.\\ M.keysSet uniqueParams
+      unless (S.null missingParamNames) $
+        throwing _CliMissingRequiredParameters missingParamNames
+
+      return $ uniqueParams `M.intersection` M.fromSet (const ()) allowedParamNames
 
 cliIO :: AppM DeploymentConfiguration -> IO ()
 cliIO mConfig = runAppM $ cli mConfig
 
-tuplesToMap :: Ord a => [(a, b)] -> M.Map a [b]
-tuplesToMap xs = M.fromList $ map concatGroup grouped
-  where
-    grouped = groupBy ((==) `on` fst) xs
-    concatGroup ys = (fst (head ys), map snd ys)
-
-assertUnique :: MonadError e m => Prism' e (M.Map T.Text [T.Text]) -> S.Set (T.Text, T.Text) -> m (M.Map T.Text T.Text)
+-- | Given a set of tuples that represent a mapping between keys and values,
+-- assert the keys are all unique, and produce a map as a result. If any keys
+-- are duplicated, the provided prism will be used to signal an error.
+assertUnique
+  :: forall k v e m. (Ord k, MonadError e m)
+  => Prism' e (M.Map k [v]) -> S.Set (k, v) -> m (M.Map k v)
 assertUnique _Err paramSet = case duplicateParams of
     [] -> return $ M.fromList paramList
     _ -> throwing _Err duplicateParams
@@ -254,6 +238,12 @@ assertUnique _Err paramSet = case duplicateParams of
     paramList = S.toAscList paramSet
     paramsGrouped = tuplesToMap paramList
     duplicateParams = M.filter ((> 1) . length) paramsGrouped
+
+    tuplesToMap :: [(k, v)] -> M.Map k [v]
+    tuplesToMap xs = M.fromList $ map concatGroup grouped
+      where
+        grouped = groupBy ((==) `on` fst) xs
+        concatGroup ys = (fst (head ys), map snd ys)
 
 -- | Applies a function to the members of a tuple to produce a result, unless
 -- the tuple contains 'Nothing', in which case this logs an error in the
@@ -267,3 +257,8 @@ extractResult :: (a -> b -> c) -> (a, Maybe b) -> Errors [a] c
 extractResult f (k, m) = do
   v <- maybe (failure [k]) pure m
   pure (f k v)
+
+-- | Like '^..', but collects the result into a 'S.Set' instead of a list.
+infixl 8 ^..*
+(^..*) :: Ord a => s -> Getting (Endo [a]) s a -> S.Set a
+x ^..* l = S.fromList (x ^.. l)

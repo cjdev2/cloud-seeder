@@ -9,6 +9,7 @@ import GHC.Exts (IsList(..))
 import Test.Hspec
 
 import Network.CloudSeeder.DSL
+import Network.CloudSeeder.Types
 
 type TagList = forall a. (IsList a, Item a ~ (T.Text, T.Text)) => a
 
@@ -23,14 +24,14 @@ spec = do
       it "adds environment variables to a DeploymentConfiguration" $ do
         let vars = ["foo", "bar", "baz"]
             config = runIdentity $ deployment "" $ environment vars
-        config ^. environmentVariables `shouldBe` vars
+        config ^. parameterSources `shouldBe` [("foo", Env), ("bar", Env), ("baz", Env)]
 
       it "adds to the environment variables that are already there" $ do
         let config = runIdentity $ deployment "" $ do
               environment ["foo"]
               environment ["bar"]
-        config ^. environmentVariables `shouldBe` ["foo", "bar"]
-    
+        config ^. parameterSources `shouldBe` [("foo", Env), ("bar", Env)]
+
     describe "stack_" $ do
       it "registers a stack with the given name" $ do
         let config = runIdentity $ deployment "" $ stack_ "foo"
@@ -48,9 +49,9 @@ spec = do
         it "configures the current stack to use the given env variables" $ do
           let vars = ["foo", "bar", "baz"]
               config = runIdentity $ deployment "" $ stack "foo" (environment vars)
-          config ^.. stacks.each.environmentVariables `shouldBe` [["foo", "bar", "baz"]]
+          config ^.. stacks.each.parameterSources `shouldBe` [[("foo", Env), ("bar", Env), ("baz", Env)]]
 
-      describe "tags" $ do 
+      describe "tags" $ do
         it "adds environment variables to a DeploymentConfiguration" $ do
           let tagz :: TagList
               tagz = [ ("tag1", "val1"), ("tag2", "val2") ]
@@ -67,7 +68,7 @@ spec = do
                 tags tags2
           config ^. tagSet `shouldBe` (tags1 <> tags2)
 
-        it "tags the current stack with the provided key value pairs" $ do 
+        it "tags the current stack with the provided key value pairs" $ do
           let tagz :: TagList
               tagz = [("foo", "bar"), ("baz", "qux")]
               config = runIdentity $ deployment "" $ stack "foo" (tags tagz)

@@ -25,7 +25,7 @@ import qualified Data.Text as T
 import qualified Data.Set as S
 
 data ParameterSource
-  = Constant
+  = Constant T.Text -- ^ @'Constant' "param value"@
   | Env
   | Flag
   | Outputs
