@@ -5,6 +5,6 @@
 import Network.CloudSeeder
 
 main :: IO ()
-main = cliIO $ deployment "cloud-seeder-example" $ do
+main = deployment "cloud-seeder-example" $ do
   flag "BucketName"
   stack_ "bucket"

@@ -4,7 +4,8 @@
 {-# LANGUAGE UndecidableInstances #-}
 
 module Network.CloudSeeder.Main
-  ( CliError(..)
+  ( AppM
+  , CliError(..)
   , HasCliError(..)
   , AsCliError(..)
   , cli
