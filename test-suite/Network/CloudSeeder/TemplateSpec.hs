@@ -8,7 +8,7 @@ import Network.CloudSeeder.Template
 import Network.CloudSeeder.Types
 
 spec :: Spec
-spec = do
+spec =
   describe "template parsing" $ do
     it "parses a template with required parameters" $ do
       let template
@@ -30,7 +30,7 @@ spec = do
             ++ "  Foo:\n"
             ++ "    Type: boop\n"
             ++ "    Default: bar\n"
-          expected = Template $ ParameterSpecs [Optional "Env" "test", Optional "Foo" "bar"]
+          expected = Template $ ParameterSpecs [Optional "Env" $ Value "test", Optional "Foo" $ Value "bar"]
           parsed = decode $ pack template
       parsed `shouldBe` Just expected
 
@@ -40,6 +40,6 @@ spec = do
             ++ "  Port:\n"
             ++ "    Type: Number\n"
             ++ "    Default: 42\n"
-          expected = Template $ ParameterSpecs [Optional "Port" "42.0"]
+          expected = Template $ ParameterSpecs [Optional "Port" (Value "42.0")]
           parsed = decode $ pack template
       parsed `shouldBe` Just expected

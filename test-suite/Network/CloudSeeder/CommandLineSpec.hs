@@ -1,9 +1,10 @@
 module Network.CloudSeeder.CommandLineSpec (spec) where
 
-import Options.Applicative (ParserResult(..), ParserInfo(..), execParserPure, defaultPrefs, getParseResult)
+import Options.Applicative (ParserResult(..), ParserInfo(..), execParserPure, defaultPrefs, handleParseResult, getParseResult)
 import Test.Hspec
 
 import Network.CloudSeeder.CommandLine
+import Network.CloudSeeder.Types
 
 spec :: Spec
 spec = do
@@ -37,25 +38,25 @@ spec = do
 
     describe "optional parsing" $ do
       it "parses an optional parameter" $ do
-        let flags = [Optional "foo" "defVal"]
+        let flags = [Optional "foo" (Value "defVal")]
             input = command ++ ["--foo", "val"]
-            expected = [("foo", "val")]
-            parsed = getParseResult $ runParser (parseOptions flags) input
-        parsed `shouldBe` Just expected
+            expected = [("foo", Value "val")]
+        parsed <- handleParseResult $ runParser (parseOptions flags) input
+        parsed `shouldBe` expected
 
       it "returns a default value if an optional parameter is not present" $ do
-        let flags = [Optional "bar" "defVal"]
+        let flags = [Optional "bar" (Value "defVal")]
             input = command
-            expected = [("bar", "defVal")]
+            expected = [("bar", Value "defVal")]
             parsed = getParseResult $ runParser (parseOptions flags) input
         parsed `shouldBe` Just expected
 
       it "parses a required parameter" $ do
         let flags = [Required "flag"]
             input = command ++ ["--flag", "val"]
-            expected = [("flag", "val")]
-            parsed = getParseResult $ runParser (parseOptions flags) input
-        parsed `shouldBe` Just expected
+            expected = [("flag", Value "val")]
+        parsed <- handleParseResult $ runParser (parseOptions flags) input
+        parsed `shouldBe` expected
 
       it "fails if a required parameter is not present" $ do
         let flags = [Required "flag"]

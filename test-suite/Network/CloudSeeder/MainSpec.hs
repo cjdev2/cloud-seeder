@@ -16,6 +16,7 @@ import Test.Hspec
 import Network.CloudSeeder.DSL
 import Network.CloudSeeder.Interfaces
 import Network.CloudSeeder.Main
+import Network.CloudSeeder.Types
 import Network.CloudSeeder.Test.Stubs
 
 import qualified Data.Text as T
@@ -34,6 +35,7 @@ spec =
                     <> "    Type: String\n"
         rootExpectedTags = [("cj:application", "foo"), ("cj:environment", "test")]
         rootParams = [("Env", "test")]
+        rootExpectedParams = [("Env", Value "test")]
         serverTestArgs = ["provision", "server", "test"]
         baseTestArgs = ["provision", "base", "test"]
 
@@ -68,7 +70,7 @@ spec =
           fakeCliInput = ["provision", "foo", "test"]
       runFailure _CliStackNotConfigured "foo" $ cli config
         & stubFileSystemT
-          [ ("base.yaml", rootTemplate)]
+          [("base.yaml", rootTemplate)]
         & stubEnvironmentT []
         & stubCommandLineT fakeCliInput
         & stubExceptT
@@ -81,14 +83,14 @@ spec =
             <> "    Type: String\n"
             <> "  bar:\n"
             <> "    Type: String\n"
-          config = deployment "foo" $ do
+          config = deployment "foo" $
             stack_ "base"
       runFailure _CliMissingRequiredParameters ["foo", "bar"] $ cli config
         & stubFileSystemT [ ("base.yaml", baseTemplate) ]
         & stubEnvironmentT []
         & stubCommandLineT baseTestArgs
         & stubExceptT
-        & mockCloudT []
+        & mockCloudT [GetStackInfo "test-foo-base" :-> Nothing]
 
     context "the configuration does not have environment variables" $ do
       let config = deployment "foo" $ do
@@ -99,12 +101,13 @@ spec =
       it "applies a changeset to a stack" $ example $
         runSuccess $ cli config
           & stubFileSystemT
-            [ ("base.yaml", rootTemplate) ]
+            [("base.yaml", rootTemplate)]
           & stubEnvironmentT []
           & stubCommandLineT baseTestArgs
           & stubExceptT
           & mockCloudT
-            [ ComputeChangeset "test-foo-base" rootTemplate rootParams rootExpectedTags :-> "csid"
+            [ GetStackInfo "test-foo-base" :-> Nothing
+            , ComputeChangeset "test-foo-base" CreateStack rootTemplate rootExpectedParams rootExpectedTags :-> "csid"
             , RunChangeSet "csid" :-> () ]
 
       it "passes only the outputs from previous stacks that are listed in this template's Parameters" $ do
@@ -125,11 +128,13 @@ spec =
           & stubCommandLineT serverTestArgs
           & stubExceptT
           & mockCloudT
-            [ GetStackOutputs "test-foo-base" :-> Just baseOutputs
+            [ GetStackInfo "test-foo-server" :-> Nothing
+            , GetStackOutputs "test-foo-base" :-> Just baseOutputs
             , ComputeChangeset
                 "test-foo-server"
+                CreateStack
                 serverTemplate
-                (rootParams <> [("bar", "qux"), ("foo", "baz")])
+                (rootExpectedParams <> [("bar", Value "qux"), ("foo", Value "baz")])
                 rootExpectedTags
                 :-> "csid"
             , RunChangeSet "csid" :-> () ]
@@ -146,12 +151,14 @@ spec =
           & stubCommandLineT ["provision", "frontend", "test"]
           & stubExceptT
           & mockCloudT
-            [ GetStackOutputs "test-foo-base" :-> Just baseOutputs
+            [ GetStackInfo "test-foo-frontend" :-> Nothing
+            , GetStackOutputs "test-foo-base" :-> Just baseOutputs
             , GetStackOutputs "test-foo-server" :-> Just []
             , ComputeChangeset
                 "test-foo-frontend"
+                CreateStack
                 frontendtemplate
-                (rootParams <> [("foo", "baz")])
+                (rootExpectedParams <> [("foo", Value "baz")])
                 rootExpectedTags
                 :-> "csid"
             , RunChangeSet "csid" :-> () ]
@@ -164,7 +171,8 @@ spec =
           & stubCommandLineT ["provision", "frontend", "test"]
           & stubExceptT
           & mockCloudT
-            [ GetStackOutputs "test-foo-base" :-> Nothing
+            [ GetStackInfo "test-foo-frontend" :-> Nothing
+            , GetStackOutputs "test-foo-base" :-> Nothing
             , GetStackOutputs "test-foo-server" :-> Just [] ]
 
         runFailure _CliMissingDependencyStacks ["server"] $ cli config
@@ -174,7 +182,8 @@ spec =
           & stubCommandLineT ["provision", "frontend", "test"]
           & stubExceptT
           & mockCloudT
-            [ GetStackOutputs "test-foo-base" :-> Just []
+            [ GetStackInfo "test-foo-frontend" :-> Nothing
+            , GetStackOutputs "test-foo-base" :-> Just []
             , GetStackOutputs "test-foo-server" :-> Nothing ]
 
         runFailure _CliMissingDependencyStacks ["base", "server"] $ cli config
@@ -184,7 +193,8 @@ spec =
           & stubCommandLineT ["provision", "frontend", "test"]
           & stubExceptT
           & mockCloudT
-            [ GetStackOutputs "test-foo-base" :-> Nothing
+            [ GetStackInfo "test-foo-frontend" :-> Nothing
+            , GetStackOutputs "test-foo-base" :-> Nothing
             , GetStackOutputs "test-foo-server" :-> Nothing ]
 
     context "the configuration has global environment variables" $ do
@@ -201,6 +211,7 @@ spec =
                     <> "  SecretsStore:\n"
                     <> "    Type: String\n"
         let env = rootParams <> [ ("Domain", "example.com"), ("SecretsStore", "arn::aws:1234") ]
+            expectedParams = rootExpectedParams <> [("Domain", Value "example.com"), ("SecretsStore", Value "arn::aws:1234")]
         runSuccess $ cli config
           & stubFileSystemT
             [ ("base.yaml", template) ]
@@ -208,7 +219,8 @@ spec =
           & stubCommandLineT baseTestArgs
           & stubExceptT
           & mockCloudT
-            [ ComputeChangeset "test-foo-base" template env rootExpectedTags :-> "csid"
+            [ GetStackInfo "test-foo-base" :-> Nothing
+            , ComputeChangeset "test-foo-base" CreateStack template expectedParams rootExpectedTags :-> "csid"
             , RunChangeSet "csid" :-> () ]
 
       it "fails when a global environment variable is missing" $ do
@@ -219,7 +231,7 @@ spec =
           & stubEnvironmentT env
           & stubCommandLineT baseTestArgs
           & stubExceptT
-          & mockCloudT []
+          & mockCloudT [GetStackInfo "test-foo-base" :-> Nothing]
 
       it "reports all missing environment variables at once in alphabetical order" $
         runFailure _CliMissingEnvVars ["Domain", "SecretsStore"] $ cli config
@@ -228,7 +240,7 @@ spec =
           & stubEnvironmentT []
           & stubCommandLineT baseTestArgs
           & stubExceptT
-          & mockCloudT []
+          & mockCloudT [GetStackInfo "test-foo-base" :-> Nothing]
 
     context "the configuration has global and local environment variables" $ do
       let config = deployment "foo" $ do
@@ -248,6 +260,8 @@ spec =
             baseTemplate = template
                         <> "  Base:\n"
                         <> "    Type: String\n"
+            expectedParams = rootExpectedParams <> [("Domain", Value "example.com"), ("Env", Value "test"), ("SecretsStore", Value "arn::aws:1234")]
+            expectedBaseParams = expectedParams <> [("Base", Value "a")]
         runSuccess $ cli config
           & stubFileSystemT
             [ ("base.yaml", baseTemplate) ]
@@ -255,7 +269,14 @@ spec =
           & stubCommandLineT baseTestArgs
           & stubExceptT
           & mockCloudT
-            [ ComputeChangeset "test-foo-base" baseTemplate baseEnv rootExpectedTags :-> "csid"
+            [ GetStackInfo "test-foo-base" :-> Nothing
+            , ComputeChangeset
+                "test-foo-base"
+                CreateStack
+                baseTemplate
+                expectedBaseParams
+                rootExpectedTags
+                :-> "csid"
             , RunChangeSet "csid" :-> () ]
 
         let serverEnv = env <> [ ("Server1", "b"), ("Server2", "c") ]
@@ -264,6 +285,7 @@ spec =
                           <> "    Type: String\n"
                           <> "  Server2:\n"
                           <> "    Type: String\n"
+            expectedServerParams = expectedParams <> [("Server1", Value "b"), ("Server2", Value "c")]
         runSuccess $ cli config
           & stubFileSystemT
             [ ("server.yaml", serverTemplate) ]
@@ -271,8 +293,15 @@ spec =
           & stubCommandLineT serverTestArgs
           & stubExceptT
           & mockCloudT
-            [ GetStackOutputs "test-foo-base" :-> Just []
-            , ComputeChangeset "test-foo-server" serverTemplate serverEnv rootExpectedTags :-> "csid"
+            [ GetStackInfo "test-foo-server" :-> Nothing
+            , GetStackOutputs "test-foo-base" :-> Just []
+            , ComputeChangeset
+                "test-foo-server"
+                CreateStack
+                serverTemplate
+                expectedServerParams
+                rootExpectedTags
+                :-> "csid"
             , RunChangeSet "csid" :-> () ]
 
     context "the configuration has global tags" $ do
@@ -293,7 +322,14 @@ spec =
           & stubCommandLineT baseTestArgs
           & stubExceptT
           & mockCloudT
-            [ ComputeChangeset "test-foo-base" rootTemplate rootParams expectedTags :-> "csid"
+            [ GetStackInfo "test-foo-base" :-> Nothing
+            , ComputeChangeset
+                "test-foo-base"
+                CreateStack
+                rootTemplate
+                rootExpectedParams
+                expectedTags
+                :-> "csid"
             , RunChangeSet "csid" :-> () ]
 
     context "the configuration has global and local tags" $ do
@@ -319,7 +355,14 @@ spec =
           & stubCommandLineT baseTestArgs
           & stubExceptT
           & mockCloudT
-            [ ComputeChangeset "test-foo-base" rootTemplate rootParams expectedGlobalTags :-> "csid"
+            [ GetStackInfo "test-foo-base" :-> Nothing
+            , ComputeChangeset
+                "test-foo-base"
+                CreateStack
+                rootTemplate
+                rootExpectedParams
+                expectedGlobalTags
+                :-> "csid"
             , RunChangeSet "csid" :-> () ]
 
         runSuccess $ cli config
@@ -329,8 +372,15 @@ spec =
           & stubCommandLineT serverTestArgs
           & stubExceptT
           & mockCloudT
-            [ GetStackOutputs "test-foo-base" :-> Just []
-            , ComputeChangeset "test-foo-server" rootTemplate rootParams expectedServerTags :-> "csid"
+            [ GetStackInfo "test-foo-server" :-> Nothing
+            , GetStackOutputs "test-foo-base" :-> Just []
+            , ComputeChangeset
+                "test-foo-server"
+                CreateStack
+                rootTemplate
+                rootExpectedParams
+                expectedServerTags
+                :-> "csid"
             , RunChangeSet "csid" :-> () ]
 
     context "monadic logic" $
@@ -347,10 +397,7 @@ spec =
               param "foo" "bar"
               whenEnv "prod" $ param "baz" "qux"
               stack_ "base"
-
-            expectedParams = [("Env", "prod"), ("baz", "qux"), ("foo", "bar")]
             expectedTags = [("cj:application","foo"),("cj:environment","prod")]
-            expectedParamsTest = [("foo", "bar")] <> rootParams
 
         it "can add a param based on prod" $
           runSuccess $ cli config
@@ -360,7 +407,14 @@ spec =
             & stubCommandLineT ["provision", "base", "prod"]
             & stubExceptT
             & mockCloudT
-              [ ComputeChangeset "prod-foo-base" template expectedParams expectedTags :-> "csid"
+              [ GetStackInfo "prod-foo-base" :-> Nothing
+              , ComputeChangeset
+                  "prod-foo-base"
+                  CreateStack
+                  template
+                  [("Env", Value "prod"), ("baz", Value "qux"), ("foo", Value "bar")]
+                  expectedTags
+                  :-> "csid"
               , RunChangeSet "csid" :-> () ]
 
         it "does not provide prod-only params when not in prod" $
@@ -371,7 +425,14 @@ spec =
             & stubCommandLineT baseTestArgs
             & stubExceptT
             & mockCloudT
-              [ ComputeChangeset "test-foo-base" template expectedParamsTest rootExpectedTags :-> "csid"
+              [ GetStackInfo "test-foo-base" :-> Nothing
+              , ComputeChangeset
+                  "test-foo-base"
+                  CreateStack
+                  template
+                  ([("foo", Value "bar")] <> rootExpectedParams)
+                  rootExpectedTags
+                  :-> "csid"
               , RunChangeSet "csid" :-> () ]
 
     context "flags" $ do
@@ -393,7 +454,14 @@ spec =
           & stubCommandLineT ["provision", "base", "test", "--baz", "zab"]
           & stubExceptT
           & mockCloudT
-            [ ComputeChangeset "test-foo-base" template (rootParams <> [("baz", "zab")]) rootExpectedTags :-> "csid"
+            [ GetStackInfo "test-foo-base" :-> Nothing
+            , ComputeChangeset
+                "test-foo-base"
+                CreateStack
+                template
+                (rootExpectedParams <> [("baz", Value "zab")])
+                rootExpectedTags
+                :-> "csid"
             , RunChangeSet "csid" :-> () ]
 
       it "provides a default if an optional flag isn't provided" $
@@ -404,7 +472,14 @@ spec =
           & stubCommandLineT ["provision", "base", "test"]
           & stubExceptT
           & mockCloudT
-            [ ComputeChangeset "test-foo-base" template (rootParams <> [("baz", "prod")]) rootExpectedTags :-> "csid"
+            [ GetStackInfo "test-foo-base" :-> Nothing
+            , ComputeChangeset
+                "test-foo-base"
+                CreateStack
+                template
+                (rootExpectedParams <> [("baz", Value "prod")])
+                rootExpectedTags
+                :-> "csid"
             , RunChangeSet "csid" :-> () ]
 
       it "raises an error if a flag is provided that does not exist in the template" $
@@ -418,4 +493,27 @@ spec =
             & stubCommandLineT
               ["provision", "base", "test", "--foo", "oof", "--bar", "rab", "--baz", "zab"]
             & stubExceptT
-            & mockCloudT []
+            & mockCloudT [GetStackInfo "test-foo-base" :-> Nothing]
+
+      it "when updating a stack, flags are optional" $ do
+        let baseTemplate = "Parameters:\n"
+                    <> "  Env:\n"
+                    <> "    Type: String\n"
+                    <> "  baz:\n"
+                    <> "    Type: String\n"
+        runSuccess $ cli config
+          & stubFileSystemT
+            [ ("base.yaml", baseTemplate) ]
+          & stubEnvironmentT []
+          & stubCommandLineT ["provision", "base", "test"]
+          & stubExceptT
+          & mockCloudT
+            [ GetStackInfo "test-foo-base" :-> (Just $ Stack ["Env", "baz"])
+            , ComputeChangeset
+                "test-foo-base"
+                (UpdateStack ["Env","baz"])
+                baseTemplate
+                (rootExpectedParams <> [("baz", UsePreviousValue)])
+                rootExpectedTags
+                :-> "csid"
+            , RunChangeSet "csid" :-> () ]

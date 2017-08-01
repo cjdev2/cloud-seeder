@@ -60,7 +60,7 @@ parseArguments = program PhaseArguments
 -- | A parser that corresponds to the second “parsing phase” for the @provision@
 -- subcommand, as described in the module documentation for
 -- 'Network.CloudSeeder.CommandLine'.
-parseOptions :: S.Set ParameterSpec -> ParserInfo (M.Map T.Text T.Text)
+parseOptions :: S.Set ParameterSpec -> ParserInfo (M.Map T.Text ParameterValue)
 parseOptions = program . PhaseOptions
 
 program :: ParsingPhase r -> ParserInfo r
@@ -72,7 +72,7 @@ program phase = info (helper <*> provision phase)
 -- the 'provision' parser.
 data ParsingPhase r where
   PhaseArguments :: ParsingPhase Command
-  PhaseOptions :: S.Set ParameterSpec -> ParsingPhase (M.Map T.Text T.Text)
+  PhaseOptions :: S.Set ParameterSpec -> ParsingPhase (M.Map T.Text ParameterValue)
 
 -- | Parser for the 'provision' subcommand, which parses a 'ProvisionStack'
 -- value if it succeeds.
@@ -107,21 +107,26 @@ provision phase = subparser . command "provision" $ info parser infoMod
         helper' p = (abortOption ShowHelpText opts <*> empty) <|> p
           where opts = long "help" <> short 'h' <> internal
 
-    optionsParser :: S.Set ParameterSpec -> Parser (M.Map T.Text T.Text)
+    optionsParser :: S.Set ParameterSpec -> Parser (M.Map T.Text ParameterValue)
     optionsParser specs = M.fromList <$> traverse parameter (S.toList specs)
       where
         parameter spec = do
           let key = spec ^. parameterKey
               keyStr = T.unpack key
-          val <- textOption (long keyStr <> metavar keyStr <> defaultMod spec)
+          val <- parameterValueOption (long keyStr <> metavar keyStr <> defaultMod spec)
           pure (key, val)
 
-        defaultMod (Required _) = mempty
-        defaultMod (Optional _ defVal) = value (T.unpack defVal)
+        defaultMod :: ParameterSpec -> Mod OptionFields ParameterValue
+        defaultMod (Optional _ x) = value x
+        defaultMod _ = mempty
 
 -- helpers --
 textArgument :: Mod ArgumentFields String -> Parser T.Text
 textArgument = fmap T.pack . strArgument
 
-textOption :: Mod OptionFields String -> Parser T.Text
-textOption = fmap T.pack . strOption
+parameterValueOption :: Mod OptionFields ParameterValue -> Parser ParameterValue
+parameterValueOption opts = option (Value <$> str) (opts <> showDef)
+  where
+    showDef = showDefaultWith (\case
+      UsePreviousValue -> "use previous value"
+      Value d -> T.unpack d)

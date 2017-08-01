@@ -5,7 +5,11 @@ module Network.CloudSeeder.Types
   ( ParameterSource(..)
   , AsParameterSource(..)
 
-  , Parameter(..)
+  , ProvisionType(..)
+  , AsProvisionType(..)
+
+  , ParameterValue(..)
+  , AsParameterValue(..)
 
   , ParameterSpec(..)
   , AsParameterSpec(..)
@@ -13,10 +17,13 @@ module Network.CloudSeeder.Types
   , parameterKey
 
   , ParameterMap(..)
+
+  , Stack(..)
+  , parameters
   ) where
 
 import Control.Applicative ((<|>))
-import Control.Lens (Lens', lens, makeClassyPrisms, makeWrapped)
+import Control.Lens (Lens', lens, makeFields, makeClassyPrisms, makeWrapped)
 import Data.Aeson.Types (typeMismatch)
 import Data.Yaml (FromJSON(..), Parser, Value(..), (.:?))
 
@@ -25,24 +32,36 @@ import qualified Data.Map as M
 import qualified Data.Text as T
 import qualified Data.Set as S
 
+data Stack = Stack
+  { _stackParameters :: S.Set T.Text
+  }
+  deriving (Eq, Show, Ord)
+makeFields ''Stack
+
 data ParameterSource
   = Constant T.Text -- ^ @'Constant' "param value"@
   | Env
   | Flag
   | Outputs
-  | PreviousValue
   deriving (Eq, Show, Ord)
-
 makeClassyPrisms ''ParameterSource
 
-data Parameter = Parameter ParameterSource T.Text T.Text
-  deriving (Eq, Show)
+data ProvisionType
+  = CreateStack
+  | UpdateStack (S.Set T.Text) -- ^ @'Update' "list of parameter keys"@
+  deriving (Eq, Show, Ord)
+makeClassyPrisms ''ProvisionType
+
+data ParameterValue
+  = UsePreviousValue
+  | Value T.Text
+  deriving (Eq, Show, Ord)
+makeClassyPrisms ''ParameterValue
 
 data ParameterSpec
   = Required T.Text
-  | Optional T.Text T.Text
+  | Optional T.Text ParameterValue
   deriving (Eq, Show, Ord)
-
 makeClassyPrisms ''ParameterSpec
 
 parameterKey :: Lens' ParameterSpec T.Text
@@ -54,10 +73,8 @@ parameterKey = lens get set
     set (Required _) x = Required x
     set (Optional _ y) x = Optional x y
 
-
 newtype ParameterSpecs = ParameterSpecs (S.Set ParameterSpec)
   deriving (Eq, Show, Ord)
-
 makeWrapped ''ParameterSpecs
 
 instance FromJSON ParameterSpecs where
@@ -70,7 +87,7 @@ instance FromJSON ParameterSpecs where
         defVal <- defParser
               -- try parsing as a double if parsing fails as a string
               <|> fmap (fmap (T.pack . show)) (defParser @Double)
-        return $ maybe (Required k) (Optional k) defVal
+        return $ maybe (Required k) (\v -> Optional k (Value v)) defVal
       parseParamSpec (k, invalid) = typeMismatch (T.unpack k) invalid
   parseJSON invalid = typeMismatch "Parameters" invalid
 

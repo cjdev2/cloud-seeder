@@ -43,26 +43,10 @@ data StackConfiguration = StackConfiguration
 makeFields ''DeploymentConfiguration
 makeFields ''StackConfiguration
 
-paramSource :: (Monad m, HasParameterSources a (S.Set (T.Text, ParameterSource)) ) => T.Text -> ParameterSource -> StateT a m ()
-paramSource pName source = parameterSources %= S.insert (pName, source)
-
 deployment :: Monad m => T.Text -> StateT DeploymentConfiguration m a -> m DeploymentConfiguration
 deployment name' x =
   let config = DeploymentConfiguration name' [] [] []
   in execStateT x config
-
-environment :: (Monad m, HasParameterSources a (S.Set (T.Text, ParameterSource))) => [T.Text] -> StateT a m ()
-environment = mapM_ (flip paramSource Env)
-
-flag :: (Monad m, HasParameterSources a (S.Set (T.Text, ParameterSource))) => T.Text -> StateT a m ()
-flag pName = paramSource pName Flag
-
-tags :: (Monad m, HasTagSet a (S.Set (T.Text, T.Text))) => [(T.Text, T.Text)] -> StateT a m ()
-tags ts = tagSet %= (<> S.fromList ts)
-
-param :: (Monad m, HasParameterSources a (S.Set (T.Text, ParameterSource)))
-      => T.Text -> T.Text -> StateT a m ()
-param key val = paramSource key (Constant val)
 
 stack_ :: Monad m => T.Text -> StateT DeploymentConfiguration m ()
 stack_ name' = stack name' $ return ()
@@ -72,3 +56,19 @@ stack name' x = do
   let stackConfig = StackConfiguration name' [] []
   stackConfig' <- lift $ execStateT x stackConfig
   stacks %= (++ [stackConfig'])
+
+environment :: (Monad m, HasParameterSources a (S.Set (T.Text, ParameterSource))) => [T.Text] -> StateT a m ()
+environment = mapM_ (`paramSource` Env)
+
+paramSource :: (Monad m, HasParameterSources a (S.Set (T.Text, ParameterSource)) ) => T.Text -> ParameterSource -> StateT a m ()
+paramSource pName source = parameterSources %= S.insert (pName, source)
+
+flag :: (Monad m, HasParameterSources a (S.Set (T.Text, ParameterSource))) => T.Text -> StateT a m ()
+flag pName = paramSource pName Flag
+
+param :: (Monad m, HasParameterSources a (S.Set (T.Text, ParameterSource)))
+      => T.Text -> T.Text -> StateT a m ()
+param key val = paramSource key (Constant val)
+
+tags :: (Monad m, HasTagSet a (S.Set (T.Text, T.Text))) => [(T.Text, T.Text)] -> StateT a m ()
+tags ts = tagSet %= (<> S.fromList ts)
