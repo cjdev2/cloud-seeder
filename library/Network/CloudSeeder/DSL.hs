@@ -8,16 +8,18 @@ module Network.CloudSeeder.DSL
   , HasParameterSources(..)
   , HasStacks(..)
   , HasTagSet(..)
+  , HasGlobalStack(..)
   , deployment
   , environment
   , flag
+  , global
   , tags
   , param
   , stack_
   , stack
   ) where
 
-import Control.Lens ((%=))
+import Control.Lens ((%=), (.=))
 import Control.Monad.State (StateT, execStateT, lift)
 import Control.Lens.TH (makeFields)
 import Data.Semigroup ((<>))
@@ -38,6 +40,7 @@ data StackConfiguration = StackConfiguration
   { _stackConfigurationName :: T.Text
   , _stackConfigurationTagSet :: S.Set (T.Text, T.Text)
   , _stackConfigurationParameterSources :: S.Set (T.Text, ParameterSource)
+  , _stackConfigurationGlobalStack :: Bool
   } deriving (Eq, Show)
 
 makeFields ''DeploymentConfiguration
@@ -53,9 +56,12 @@ stack_ name' = stack name' $ return ()
 
 stack :: Monad m => T.Text -> StateT StackConfiguration m a -> StateT DeploymentConfiguration m ()
 stack name' x = do
-  let stackConfig = StackConfiguration name' [] []
+  let stackConfig = StackConfiguration name' [] [] False
   stackConfig' <- lift $ execStateT x stackConfig
   stacks %= (++ [stackConfig'])
+
+global :: (Monad m, HasGlobalStack a Bool) => StateT a m ()
+global = globalStack .= True
 
 environment :: (Monad m, HasParameterSources a (S.Set (T.Text, ParameterSource))) => [T.Text] -> StateT a m ()
 environment = mapM_ (`paramSource` Env)

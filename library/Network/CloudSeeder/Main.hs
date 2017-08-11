@@ -15,7 +15,7 @@ module Network.CloudSeeder.Main
 import Control.Applicative.Lift (Errors, failure, runErrors)
 import Control.Arrow (second)
 import Control.Lens (Getting, Prism', (^.), (^..), _1, _2, _Wrapped, anyOf, aside, each, filtered, folded, makeClassy, makeClassyPrisms, has, only, to)
-import Control.Monad (unless)
+import Control.Monad (unless, when)
 import Control.Monad.Base (MonadBase)
 import Control.Monad.Catch (MonadCatch, MonadThrow)
 import Control.Monad.Error.Lens (throwing)
@@ -52,6 +52,8 @@ data CliError
   = CliMissingEnvVars [T.Text]
   | CliFileSystemError FileSystemError
   | CliStackNotConfigured T.Text
+  | CliStackNotGlobal T.Text
+  | CliGlobalStackMustProvisionToGlobal T.Text
   | CliMissingDependencyStacks [T.Text]
   | CliTemplateDecodeFail String
   | CliMissingRequiredParameters (S.Set T.Text)
@@ -71,6 +73,10 @@ renderCliError (CliFileSystemError (FileNotFound path))
   = "file not found: ‘" <> path <> "’\n"
 renderCliError (CliStackNotConfigured stackName)
   = "stack name not present in configuration: ‘" <> stackName <> "’\n"
+renderCliError (CliStackNotGlobal stackName)
+  = "stack is not marked as global in configuration: '" <> stackName <> "'\n"
+renderCliError (CliGlobalStackMustProvisionToGlobal stackName)
+  = "global stack must be deployed into the global environment: '" <> stackName <> "'\n"
 renderCliError (CliMissingDependencyStacks stackNames)
   =  "the following dependency stacks do not exist in AWS:\n"
   <> T.unlines (map ("  " <>) stackNames)
@@ -139,10 +145,17 @@ cli mConfig = do
   config <- mConfig
   (ProvisionStack nameToProvision env) <- getArgs
 
-  let dependencies = takeWhile (/= nameToProvision) (config ^.. stacks.each.name)
+  let dependencies = takeWhile (\stak -> (stak ^. name) /= nameToProvision) (config ^.. stacks.each)
       appName = config ^. name
 
   stackToProvision <- getStackToProvision config nameToProvision
+
+  let isGlobalStack = stackToProvision ^. globalStack
+  when (env == "global" && not isGlobalStack) $
+    throwing _CliStackNotGlobal nameToProvision
+
+  when (env /= "global" && isGlobalStack) $
+    throwing _CliGlobalStackMustProvisionToGlobal nameToProvision
 
   templateBody <- readFile $ nameToProvision <> ".yaml"
   template <- decodeTemplate templateBody
@@ -193,7 +206,7 @@ getParameters
   => ProvisionType
   -> S.Set (T.Text, ParameterSource) -- ^ parameter sources to fetch values for
   -> S.Set ParameterSpec -- ^ parameter specs from the template currently being deployed
-  -> [T.Text] -- ^ names of stack dependencies
+  -> [StackConfiguration] -- ^ stack dependencies
   -> T.Text -- ^ name of environment being deployed to
   -> T.Text -- ^ name of application being deployed
   -> m (M.Map T.Text ParameterValue)
@@ -236,9 +249,17 @@ getParameters provisionType paramSources allParamSpecs dependencies env appName 
 
     outputs :: m (S.Set (T.Text, ParameterValue))
     outputs = do
-      maybeOutputs <- mapM (\stackName -> (stackName,) <$> getStackOutputs (mkFullStackName env appName stackName)) dependencies
-      let outputsOrFailure = runErrors $ traverse (extractResult (flip const)) maybeOutputs
-      either (throwing _CliMissingDependencyStacks) (return . S.fromList . fmap (second Value) . concatMap M.toList) outputsOrFailure
+        maybeLocalOutputs <- getOutputs (\s -> not (s ^. globalStack)) env
+        maybeGlobalOutputs <- getOutputs (^. globalStack) "global"
+
+        let maybeOutputs = maybeLocalOutputs <> maybeGlobalOutputs
+            outputsOrFailure = runErrors $ traverse (extractResult (flip const)) maybeOutputs
+        either (throwing _CliMissingDependencyStacks) (return . S.fromList . fmap (second Value) . concatMap M.toList) outputsOrFailure
+      where
+        getOutputs predicate envName = do
+          let filteredDependencies = dependencies ^.. folded.filtered predicate
+              filteredDependencyNames = filteredDependencies ^.. each.name
+          mapM (\stackName -> (stackName,) <$> getStackOutputs (mkFullStackName envName appName stackName)) filteredDependencyNames
 
     validateParameters :: S.Set ParameterSpec -> S.Set (T.Text, ParameterValue) -> m (M.Map T.Text ParameterValue)
     validateParameters paramSpecs params = do

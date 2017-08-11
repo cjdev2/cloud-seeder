@@ -11,8 +11,7 @@ import Control.Monad.Writer (WriterT(..), tell)
 import Control.Monad.Trans.Class (MonadTrans(..))
 import Control.Monad.Logger (MonadLogger(..))
 import Data.ByteString (ByteString)
-import Data.Maybe (fromJust)
-import Options.Applicative (ParserInfo(..), execParserPure, defaultPrefs, getParseResult)
+import Options.Applicative (ParserInfo(..), ParserResult(..), execParserPure, defaultPrefs, renderFailure)
 import System.Log.FastLogger (fromLogStr, toLogStr)
 
 import qualified Data.Map as M
@@ -38,11 +37,19 @@ instance Monad m => MonadCLI (ArgumentsT m) where
 
   getOptions pSpecs = ArgumentsT $ do
     input <- ask
-    let x = execParserPure defaultPrefs (parseOptions pSpecs) input
-    return $ fromJust $ getParseResult x
+    return $ consume (parseOptions pSpecs) input
 
-consume :: ParserInfo c -> [String] -> c
-consume p = fromJust . getParseResult . execParserPure defaultPrefs p
+consume :: ParserInfo a -> [String] -> a
+consume p x = case parserErrorOrResult of
+    Right result -> result
+    Left err -> error err
+  where parserErrorOrResult = parserResult $ execParserPure defaultPrefs p x
+
+parserResult :: ParserResult a -> Either String a
+parserResult (Success a) = return a
+parserResult (Failure failure) = Left msg
+  where (msg, _) = renderFailure failure "stub"
+parserResult _ = error "parserResult: completion encountered"
 
 --------------------------------------------------------------------------------
 -- Logger

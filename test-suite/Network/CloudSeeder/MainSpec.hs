@@ -517,3 +517,76 @@ spec =
                 rootExpectedTags
                 :-> "csid"
             , RunChangeSet "csid" :-> () ]
+
+    context "global stacks" $ do
+      it "global stacks can be deployed into the global environment" $ do
+        let config' = deployment "foo" $ do
+              stack "repo"
+                global
+              stack_ "base"
+        runSuccess $ cli config'
+          & stubFileSystemT
+            [ ("repo.yaml", rootTemplate) ]
+          & stubEnvironmentT []
+          & stubCommandLineT ["provision", "repo", "global"]
+          & stubExceptT
+          & mockCloudT
+            [ GetStackInfo "global-foo-repo" :-> Nothing
+            , ComputeChangeset
+                "global-foo-repo"
+                CreateStack
+                rootTemplate
+                [("Env", Value "global")]
+                [("cj:application", "foo"), ("cj:environment", "global")]
+                :-> "csid"
+            , RunChangeSet "csid" :-> () ]
+
+      it "global stack may not be deployed into namespaces other than global" $ do
+        let config' = deployment "foo" $ do
+              stack "repo"
+                global
+              stack_ "base"
+        runFailure _CliGlobalStackMustProvisionToGlobal "repo" $ cli config'
+          & stubFileSystemT
+            [ ("repo.yaml", rootTemplate) ]
+          & stubEnvironmentT []
+          & stubCommandLineT ["provision", "repo", "test"]
+          & stubExceptT
+          & mockCloudT []
+
+
+      it "other stacks can not be deployed into the global namespace" $ do
+        let config' = deployment "foo" $ do
+              stack "repo" global
+              stack_ "base"
+        runFailure _CliStackNotGlobal "base" $ cli config'
+          & stubFileSystemT
+            [("base.yaml", rootTemplate)]
+          & stubEnvironmentT []
+          & stubCommandLineT ["provision", "base", "global"]
+          & stubExceptT
+          & mockCloudT []
+
+      it "other stacks treat global stacks as dependencies" $ do
+        let config' = deployment "foo" $ do
+              stack "repo" global
+              stack "accountSettings" global
+              stack_ "base"
+        runSuccess $ cli config'
+          & stubFileSystemT
+            [ ("base.yaml", rootTemplate) ]
+          & stubEnvironmentT []
+          & stubCommandLineT ["provision", "base", "test"]
+          & stubExceptT
+          & mockCloudT
+            [ GetStackInfo "test-foo-base" :-> Nothing
+            , GetStackOutputs "global-foo-repo" :-> Just []
+            , GetStackOutputs "global-foo-accountSettings" :-> Just []
+            , ComputeChangeset
+                "test-foo-base"
+                CreateStack
+                rootTemplate
+                rootExpectedParams
+                rootExpectedTags
+                :-> "csid"
+            , RunChangeSet "csid" :-> () ]
