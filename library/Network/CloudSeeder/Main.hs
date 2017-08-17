@@ -14,7 +14,7 @@ module Network.CloudSeeder.Main
 
 import Control.Applicative.Lift (Errors, failure, runErrors)
 import Control.Arrow (second)
-import Control.Lens (Getting, Prism', (^.), (^..), _1, _2, _Wrapped, anyOf, aside, each, filtered, folded, makeClassy, makeClassyPrisms, has, only, to)
+import Control.Lens (Getting, Prism', (^.), (^..), (^?), _1, _2, _Wrapped, anyOf, aside, each, filtered, folded, makeClassy, makeClassyPrisms, has, only, to)
 import Control.Monad (unless, when)
 import Control.Monad.Base (MonadBase)
 import Control.Monad.Catch (MonadCatch, MonadThrow)
@@ -23,7 +23,9 @@ import Control.Monad.Except (MonadError(..), ExceptT, runExceptT)
 import Control.Monad.IO.Class (MonadIO)
 import Control.Monad.Logger (LoggingT, MonadLogger, runStderrLoggingT)
 import Control.Monad.Reader (MonadReader, ReaderT, runReaderT)
+import Control.Monad.State (execStateT)
 import Control.Monad.Trans.Control (MonadBaseControl(..))
+import Data.Coerce (coerce)
 import Data.Function (on)
 import Data.List (find, groupBy, sort)
 import Data.Text.Encoding (encodeUtf8)
@@ -140,7 +142,9 @@ runAppM (AppM x) = do
 instance AsFileSystemError CliError where
   _FileSystemError = _CliFileSystemError
 
-cli :: (MonadCLI m, MonadCloud m, MonadFileSystem CliError m, MonadEnvironment m) => m DeploymentConfiguration -> m ()
+cli
+  :: (MonadCLI m, MonadCloud m, MonadFileSystem CliError m, MonadEnvironment m)
+  => m (DeploymentConfiguration m) -> m ()
 cli mConfig = do
   config <- mConfig
   (ProvisionStack nameToProvision env) <- getArgs
@@ -163,8 +167,11 @@ cli mConfig = do
   let paramSources = (config ^. parameterSources) <> (stackToProvision ^. parameterSources)
       paramSpecs = template ^. parameterSpecs._Wrapped
   newStackOrPreviousValues <- getStackProvisionType $ mkFullStackName env appName nameToProvision
-  allParams <- getParameters newStackOrPreviousValues paramSources paramSpecs dependencies env appName
   allTags <- getTags config stackToProvision env appName
+  initialParams <- getParameters newStackOrPreviousValues paramSources paramSpecs dependencies env appName
+
+  allParams <- runCreateHooks stackToProvision initialParams
+  assertNoMissingRequiredParameters allParams paramSpecs
 
   let fullStackName = mkFullStackName env appName nameToProvision
   csId <- computeChangeset fullStackName newStackOrPreviousValues templateBody allParams allTags
@@ -177,7 +184,9 @@ getStackProvisionType stackName = do
     Nothing -> return CreateStack
     Just aStack -> return $ UpdateStack $ aStack ^. parameters
 
-getStackToProvision :: (AsCliError e, MonadError e m) => DeploymentConfiguration -> T.Text -> m StackConfiguration
+getStackToProvision
+  :: (AsCliError e, MonadError e m)
+  => DeploymentConfiguration m -> T.Text -> m (StackConfiguration m)
 getStackToProvision config nameToProvision = do
   let maybeStackToProvision = config ^. stacks.to (find (has (name.only nameToProvision)))
   maybe (throwing _CliStackNotConfigured nameToProvision) return maybeStackToProvision
@@ -190,7 +199,9 @@ decodeTemplate templateBody = do
 mkFullStackName :: T.Text -> T.Text -> T.Text -> StackName
 mkFullStackName env appName stackName = StackName $ env <> "-" <> appName <> "-" <> stackName
 
-getTags :: (MonadError e m, AsCliError e) => DeploymentConfiguration -> StackConfiguration -> T.Text -> T.Text -> m (M.Map T.Text T.Text)
+getTags
+  :: (MonadError e m, AsCliError e)
+  => DeploymentConfiguration m -> StackConfiguration m -> T.Text -> T.Text -> m (M.Map T.Text T.Text)
 getTags config stackToProvision env appName =
    assertUnique _CliDuplicateTagValues (baseTags <> globalTags <> localTags)
   where
@@ -206,15 +217,15 @@ getParameters
   => ProvisionType
   -> S.Set (T.Text, ParameterSource) -- ^ parameter sources to fetch values for
   -> S.Set ParameterSpec -- ^ parameter specs from the template currently being deployed
-  -> [StackConfiguration] -- ^ stack dependencies
+  -> [StackConfiguration m] -- ^ stack dependencies
   -> T.Text -- ^ name of environment being deployed to
   -> T.Text -- ^ name of application being deployed
   -> m (M.Map T.Text ParameterValue)
 getParameters provisionType paramSources allParamSpecs dependencies env appName = do
     let paramSpecs = setRequiredSpecsWithPreviousValuesToOptional allParamSpecs
         constants  = paramSources ^..* folded.aside _Constant.to (second Value)
-    fetchedParams  <- S.unions <$> sequence [envVars, flags paramSpecs, outputs]
-    let allParams = S.insert ("Env", Value env) (constants <> fetchedParams)
+    fetchedParams <- S.unions <$> sequence [envVars, flags paramSpecs, outputs]
+    let allParams  = S.insert ("Env", Value env) (constants <> fetchedParams)
     validateParameters paramSpecs allParams
 
   where
@@ -263,21 +274,37 @@ getParameters provisionType paramSources allParamSpecs dependencies env appName 
 
     validateParameters :: S.Set ParameterSpec -> S.Set (T.Text, ParameterValue) -> m (M.Map T.Text ParameterValue)
     validateParameters paramSpecs params = do
-      let requiredParamNames = paramSpecs ^..* folded._Required
       let allowedParamNames = paramSpecs ^..* folded.parameterKey
 
       uniqueParams <- assertUnique _CliDuplicateParameterValues params
-      let missingParamNames = requiredParamNames S.\\ M.keysSet uniqueParams
-
-      unless (S.null missingParamNames) $
-        throwing _CliMissingRequiredParameters missingParamNames
 
       let previousParams = M.fromList $ S.toAscList $ paramSpecs ^..* folded._Optional.filtered (has $ _2._UsePreviousValue)
       let allUniqueParams = M.union uniqueParams previousParams
 
       return $ allUniqueParams `M.intersection` M.fromSet (const ()) allowedParamNames
 
-cliIO :: AppM DeploymentConfiguration -> IO ()
+runCreateHooks
+  :: (AsCliError e, MonadError e m)
+  => StackConfiguration m -> M.Map T.Text ParameterValue -> m (M.Map T.Text ParameterValue)
+runCreateHooks stackToProvision params = do
+  let createHooks = coerce <$> (stackToProvision ^. hooksCreate)
+      allParamValues = M.mapMaybe (^? _Value) params
+  createHookParamSet <- runReaderT (execStateT (sequence createHooks) S.empty) allParamValues
+  let createHookParamSet' = S.map (second Value) createHookParamSet
+  createHookParams <- assertUnique _CliDuplicateParameterValues createHookParamSet'
+  return $ M.union createHookParams params
+
+assertNoMissingRequiredParameters
+  :: (AsCliError e, MonadError e m)
+  => M.Map T.Text ParameterValue -> S.Set ParameterSpec -> m ()
+assertNoMissingRequiredParameters params paramSpecs = do
+  let requiredParamNames = paramSpecs ^..* folded._Required
+  uniqueParams <- assertUnique _CliDuplicateParameterValues (S.fromList $ M.toAscList params)
+  let missingParamNames = requiredParamNames S.\\ M.keysSet uniqueParams
+  unless (S.null missingParamNames) $
+    throwing _CliMissingRequiredParameters missingParamNames
+
+cliIO :: AppM (DeploymentConfiguration AppM) -> IO ()
 cliIO mConfig = runAppM $ cli mConfig
 
 -- | Given a set of tuples that represent a mapping between keys and values,

@@ -7,7 +7,7 @@ import qualified Data.Text as T
 import Control.Monad.Error.Lens (throwing)
 import Control.Monad.Except (MonadError)
 import Control.Monad.Reader (ReaderT(..), ask)
-import Control.Monad.Writer (WriterT(..), tell)
+import Control.Monad.Writer (MonadWriter(..), WriterT(..), mapWriterT)
 import Control.Monad.Trans.Class (MonadTrans(..))
 import Control.Monad.Logger (MonadLogger(..))
 import Data.ByteString (ByteString)
@@ -24,7 +24,8 @@ import Network.CloudSeeder.Interfaces
 
 newtype ArgumentsT m a = ArgumentsT (ReaderT [String] m a)
   deriving ( Functor, Applicative, Monad, MonadTrans, MonadError e
-           , MonadLogger, MonadFileSystem e, MonadCloud, MonadEnvironment )
+           , MonadWriter w, MonadLogger, MonadFileSystem e, MonadCloud
+           , MonadEnvironment )
 
 -- | Runs a computation with access to a set of command-line arguments.
 stubCommandLineT :: [String] -> ArgumentsT m a -> m a
@@ -63,6 +64,15 @@ newtype LoggerT m a = LoggerT (WriterT [ByteString] m a)
 runLoggerT :: LoggerT m a -> m (a, [ByteString])
 runLoggerT (LoggerT x) = runWriterT x
 
+instance MonadWriter w m => MonadWriter w (LoggerT m) where
+  tell = lift . tell
+  listen (LoggerT x) = LoggerT $ flip mapWriterT x $ \y -> do
+    ((r, bs), w) <- listen y
+    return ((r, w), bs)
+  pass (LoggerT x) = LoggerT $ flip mapWriterT x $ \y -> pass $ do
+    ((r, f), bs) <- y
+    return ((r, bs), f)
+
 instance Monad m => MonadLogger (LoggerT m) where
   monadLoggerLog _ _ _ str = LoggerT $ tell [fromLogStr (toLogStr str)]
 
@@ -71,7 +81,8 @@ instance Monad m => MonadLogger (LoggerT m) where
 
 newtype FileSystemT m a = FileSystemT (ReaderT [(T.Text, T.Text)] m a)
   deriving ( Functor, Applicative, Monad, MonadTrans, MonadError e
-           , MonadCLI, MonadLogger, MonadCloud, MonadEnvironment )
+           , MonadWriter w , MonadCLI, MonadLogger, MonadCloud
+           , MonadEnvironment )
 
 -- | Runs a computation that may interact with the file system, given a mapping
 -- from file paths to file contents.
@@ -88,7 +99,8 @@ instance (AsFileSystemError e, MonadError e m) => MonadFileSystem e (FileSystemT
 
 newtype EnvironmentT m a = EnvironmentT (ReaderT (M.Map T.Text T.Text) m a)
   deriving ( Functor, Applicative, Monad, MonadTrans, MonadError e
-           , MonadCLI, MonadLogger, MonadFileSystem e, MonadCloud )
+           , MonadWriter w, MonadCLI, MonadLogger, MonadFileSystem e
+           , MonadCloud )
 
 stubEnvironmentT :: M.Map T.Text T.Text -> EnvironmentT m a -> m a
 stubEnvironmentT fs (EnvironmentT x) = runReaderT x fs

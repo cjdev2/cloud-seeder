@@ -17,5 +17,5 @@ import Network.CloudSeeder.DSL hiding (deployment)
 import Network.CloudSeeder.Interfaces
 import Network.CloudSeeder.Main
 
-deployment :: Text -> StateT DeploymentConfiguration AppM a -> IO ()
+deployment :: Text -> StateT (DeploymentConfiguration AppM) AppM a -> IO ()
 deployment x y = cliIO $ DSL.deployment x y
