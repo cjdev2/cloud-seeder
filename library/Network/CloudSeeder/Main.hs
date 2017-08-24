@@ -129,6 +129,9 @@ instance MonadCloud AppM where
   getStackInfo = getStackInfo'
   getStackOutputs = getStackOutputs'
   runChangeSet = runChangeSet'
+  encrypt = encrypt'
+  upload = upload'
+  generateSecret = generateSecret'
 
 runAppM :: AppM a -> IO a
 runAppM (AppM x) = do

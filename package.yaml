@@ -51,8 +51,12 @@ library:
   - amazonka >= 1.4.5
   - amazonka-cloudformation >= 1.4.5
   - amazonka-core >= 1.4.5
+  - amazonka-kms >= 1.4.5
+  - amazonka-s3 >= 1.4.5
   - base >= 4.9.0.0 && < 5
+  - bytestring
   - containers
+  - crypto-api
   - deepseq >= 1.4.1.0
   - exceptions >= 0.6
   - lens
@@ -61,6 +65,7 @@ library:
   - mtl
   - optparse-applicative >= 0.14.0.0
   - text
+  - text-conversions
   - transformers
   - transformers-base
   - unordered-containers

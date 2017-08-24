@@ -14,6 +14,9 @@ module Network.CloudSeeder.Interfaces
   , getStackInfo'
   , getStackOutputs'
   , runChangeSet'
+  , encrypt'
+  , upload'
+  , generateSecret'
 
   , MonadEnvironment(..)
   , StackName(..)
@@ -29,6 +32,7 @@ import Prelude hiding (readFile)
 
 import Control.Concurrent (threadDelay)
 import Control.DeepSeq (NFData)
+import Control.Exception (throw)
 import Control.Lens (Traversal', (.~), (^.), (^?), (?~), _Just, only, to)
 import Control.Lens.TH (makeClassy, makeClassyPrisms)
 import Control.Monad (void, unless, when)
@@ -44,9 +48,11 @@ import Control.Monad.Trans (MonadTrans, lift)
 import Control.Monad.Trans.AWS (runResourceT, runAWST, send)
 import Control.Monad.Trans.Control (MonadBaseControl)
 import Control.Monad.Writer (WriterT)
+import Crypto.Random
 import Data.Function ((&))
 import Data.Semigroup ((<>))
 import Data.String (IsString)
+import Data.Text.Conversions (Base64(..), UTF8(..), convertText)
 import Data.UUID (toText)
 import Data.UUID.V4 (nextRandom)
 import GHC.Generics (Generic)
@@ -55,11 +61,15 @@ import Network.AWS (AsError(..), ErrorMessage(..), HasEnv(..), serviceMessage)
 import Options.Applicative (execParser)
 
 import qualified Control.Exception.Lens as IO
+import qualified Data.ByteString as B
 import qualified Data.Map as M
 import qualified Data.Set as S
 import qualified Data.Text as T
 import qualified Data.Text.IO as T
 import qualified Network.AWS.CloudFormation as AWS
+import qualified Network.AWS.Data.Body as AWS
+import qualified Network.AWS.KMS as KMS
+import qualified Network.AWS.S3 as S3
 import qualified System.Environment as IO
 
 import Network.CloudSeeder.CommandLine
@@ -147,6 +157,9 @@ class Monad m => MonadCloud m where
   getStackInfo :: StackName -> m (Maybe Stack)
   getStackOutputs :: StackName -> m (Maybe (M.Map T.Text T.Text))
   runChangeSet :: T.Text -> m ()
+  encrypt :: T.Text -> T.Text -> m B.ByteString
+  upload :: T.Text -> T.Text -> B.ByteString -> m ()
+  generateSecret :: Int -> m T.Text
 
   default computeChangeset :: (MonadTrans t, MonadCloud m', m ~ t m') => StackName -> ProvisionType -> T.Text -> M.Map T.Text ParameterValue -> M.Map T.Text T.Text -> m T.Text
   computeChangeset a b c d e = lift $ computeChangeset a b c d e
@@ -159,6 +172,15 @@ class Monad m => MonadCloud m where
 
   default runChangeSet :: (MonadTrans t, MonadCloud m', m ~ t m') => T.Text -> m ()
   runChangeSet = lift . runChangeSet
+
+  default encrypt :: (MonadTrans t, MonadCloud m', m ~ t m') => T.Text -> T.Text -> m B.ByteString
+  encrypt a b = lift $ encrypt a b
+
+  default upload :: (MonadTrans t, MonadCloud m', m ~ t m') => T.Text -> T.Text -> B.ByteString -> m ()
+  upload a b c = lift $ upload a b c
+
+  default generateSecret :: (MonadTrans t, MonadCloud m', m ~ t m') => Int -> m T.Text
+  generateSecret = lift . generateSecret
 
 type MonadCloudIO r m = (HasEnv r, MonadReader r m, MonadIO m, MonadBaseControl IO m, MonadCatch m, MonadThrow m)
 
@@ -180,7 +202,7 @@ computeChangeset' (StackName stackName) provisionType templateBody params tags =
             & AWS.ccsTags .~ map awsTag (M.toList tags)
             & AWS.ccsChangeSetType ?~ provisionTypeToChangeSetType provisionType
       response <- send request
-      maybe (fail "computeChangeset: the impossible happened--createChangeSet did not return a change set id")
+      maybe (fail "computeChangeset: createChangeSet did not return a valid response.")
             return (response ^. AWS.ccsrsId)
   where
     awsParam (key, Value val) = AWS.parameter
@@ -247,6 +269,32 @@ runChangeSet' csId = do
         Just x -> return x
         Nothing -> fail "runChangeSet: the impossible happened--change set lacks execution status"
       unless (execStatus == AWS.Available) $ void $ waitUntilChangeSetReady env
+
+encrypt' :: MonadCloudIO r m => T.Text -> T.Text -> m B.ByteString
+encrypt' input encryptionKeyId = do
+  env <- ask
+  runResourceT . runAWST env $ do
+    let (UTF8 inputBS) = convertText input :: UTF8 B.ByteString
+        request = KMS.encrypt encryptionKeyId inputBS
+    response <- send request
+    maybe (fail "encrypt: encrypt did not return a valid response.")
+      return (response ^. KMS.ersCiphertextBlob)
+
+upload' :: MonadCloudIO r m => T.Text -> T.Text -> B.ByteString -> m ()
+upload' bucket path payload = do
+  env <- ask
+  runResourceT . runAWST env $ do
+    let request = S3.putObject (S3.BucketName bucket) (S3.ObjectKey path) (AWS.toBody payload)
+    _ <- send request
+    maybe (fail "upload: putObject did not return a valid response.")
+      return $ return ()
+
+generateSecret' :: MonadCloudIO r m => Int -> m T.Text
+generateSecret' len = do
+  g :: SystemRandom <- liftBase newGenIO
+  let (bytes, _) = either (throw NeedReseed) id (genBytes len g)
+      password = convertText $ Base64 bytes
+  return $ T.take len password
 
 instance MonadCloud m => MonadCloud (ExceptT e m)
 instance MonadCloud m => MonadCloud (LoggingT m)
