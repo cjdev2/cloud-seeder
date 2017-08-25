@@ -17,6 +17,7 @@ module Network.CloudSeeder.Interfaces
   , encrypt'
   , upload'
   , generateSecret'
+  , generateEncryptUploadSecret
 
   , MonadEnvironment(..)
   , StackName(..)
@@ -270,6 +271,13 @@ runChangeSet' csId = do
         Nothing -> fail "runChangeSet: the impossible happened--change set lacks execution status"
       unless (execStatus == AWS.Available) $ void $ waitUntilChangeSetReady env
 
+generateSecret' :: MonadCloudIO r m => Int -> m T.Text
+generateSecret' len = do
+  g :: SystemRandom <- liftBase newGenIO
+  let (bytes, _) = either (throw NeedReseed) id (genBytes len g)
+      ascii = convertText $ Base64 bytes
+  return $ T.take len ascii
+
 encrypt' :: MonadCloudIO r m => T.Text -> T.Text -> m B.ByteString
 encrypt' input encryptionKeyId = do
   env <- ask
@@ -289,12 +297,11 @@ upload' bucket path payload = do
     maybe (fail "upload: putObject did not return a valid response.")
       return $ return ()
 
-generateSecret' :: MonadCloudIO r m => Int -> m T.Text
-generateSecret' len = do
-  g :: SystemRandom <- liftBase newGenIO
-  let (bytes, _) = either (throw NeedReseed) id (genBytes len g)
-      password = convertText $ Base64 bytes
-  return $ T.take len password
+generateEncryptUploadSecret :: (MonadCloud m) => Int -> T.Text -> T.Text -> T.Text -> m ()
+generateEncryptUploadSecret len encryptionKeyId bucket path = do
+  secret <- generateSecret len
+  encrypted <- encrypt secret encryptionKeyId
+  upload bucket path encrypted
 
 instance MonadCloud m => MonadCloud (ExceptT e m)
 instance MonadCloud m => MonadCloud (LoggingT m)

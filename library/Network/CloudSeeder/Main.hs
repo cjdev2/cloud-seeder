@@ -1,20 +1,16 @@
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
 
 module Network.CloudSeeder.Main
   ( AppM
-  , CliError(..)
-  , HasCliError(..)
-  , AsCliError(..)
   , cli
   , cliIO
   ) where
 
 import Control.Applicative.Lift (Errors, failure, runErrors)
 import Control.Arrow (second)
-import Control.Lens (Getting, Prism', (^.), (^..), (^?), _1, _2, _Wrapped, anyOf, aside, each, filtered, folded, makeClassy, makeClassyPrisms, has, only, to)
+import Control.Lens (Getting, Prism', (^.), (^..), (^?), _1, _2, _Wrapped, anyOf, aside, each, filtered, folded, has, only, to)
 import Control.Monad (unless, when)
 import Control.Monad.Base (MonadBase)
 import Control.Monad.Catch (MonadCatch, MonadThrow)
@@ -43,69 +39,13 @@ import qualified Data.Set as S
 
 import Network.CloudSeeder.CommandLine
 import Network.CloudSeeder.DSL
+import Network.CloudSeeder.Error
 import Network.CloudSeeder.Interfaces
 import Network.CloudSeeder.Template
 import Network.CloudSeeder.Types
 
 --------------------------------------------------------------------------------
 -- IO wiring
-
-data CliError
-  = CliMissingEnvVars [T.Text]
-  | CliFileSystemError FileSystemError
-  | CliStackNotConfigured T.Text
-  | CliStackNotGlobal T.Text
-  | CliGlobalStackMustProvisionToGlobal T.Text
-  | CliMissingDependencyStacks [T.Text]
-  | CliTemplateDecodeFail String
-  | CliMissingRequiredParameters (S.Set T.Text)
-  | CliDuplicateParameterValues (M.Map T.Text [ParameterValue])
-  | CliDuplicateTagValues (M.Map T.Text [T.Text])
-  | CliExtraParameterFlags (S.Set T.Text)
-  deriving (Eq, Show)
-
-makeClassy ''CliError
-makeClassyPrisms ''CliError
-
-renderCliError :: CliError -> T.Text
-renderCliError (CliMissingEnvVars vars)
-  =  "the following required environment variables were not set:\n"
-  <> T.unlines (map ("  " <>) vars)
-renderCliError (CliFileSystemError (FileNotFound path))
-  = "file not found: ‘" <> path <> "’\n"
-renderCliError (CliStackNotConfigured stackName)
-  = "stack name not present in configuration: ‘" <> stackName <> "’\n"
-renderCliError (CliStackNotGlobal stackName)
-  = "stack is not marked as global in configuration: '" <> stackName <> "'\n"
-renderCliError (CliGlobalStackMustProvisionToGlobal stackName)
-  = "global stack must be deployed into the global environment: '" <> stackName <> "'\n"
-renderCliError (CliMissingDependencyStacks stackNames)
-  =  "the following dependency stacks do not exist in AWS:\n"
-  <> T.unlines (map ("  " <>) stackNames)
-renderCliError (CliTemplateDecodeFail decodeFailure)
-  = "template YAML decoding failed: " <> T.pack decodeFailure
-renderCliError (CliMissingRequiredParameters params)
-  = "the following required parameters were not supplied:\n"
-  <> T.unlines (map (" " <>) (S.toAscList params))
-renderCliError (CliDuplicateParameterValues params)
-  = "the following parameters were supplied more than one value:\n"
-  <> renderKeysToManyParameterValues params
-renderCliError (CliDuplicateTagValues ts)
-  = "the following tags were supplied more than one value:\n"
-  <> renderKeysToManyVals ts
-renderCliError (CliExtraParameterFlags ts)
-  = "parameter flags defined in config that were not present in template:\n"
-  <> T.unlines (map (" " <>) (S.toAscList ts))
-
-renderKeysToManyVals :: M.Map T.Text [T.Text] -> T.Text
-renderKeysToManyVals xs = T.unlines $ map renderKeyToVals (M.toAscList xs)
-  where renderKeyToVals (k, vs) = k <> ": " <> T.intercalate ", " vs
-
-renderKeysToManyParameterValues :: M.Map T.Text [ParameterValue] -> T.Text
-renderKeysToManyParameterValues xs = T.unlines $ map renderKeyToMaybeVals (M.toAscList xs)
-  where renderKeyToMaybeVals (k, vs) = k <> ": " <> T.intercalate ", " (map renderParameterValue vs)
-        renderParameterValue UsePreviousValue = "use previous value"
-        renderParameterValue (Value x) = x
 
 newtype AppM a = AppM (ReaderT Env (ExceptT CliError (LoggingT IO)) a)
   deriving ( Functor, Applicative, Monad, MonadIO, MonadBase IO
@@ -142,9 +82,6 @@ runAppM (AppM x) = do
 --------------------------------------------------------------------------------
 -- Logic
 
-instance AsFileSystemError CliError where
-  _FileSystemError = _CliFileSystemError
-
 cli
   :: (MonadCLI m, MonadCloud m, MonadFileSystem CliError m, MonadEnvironment m)
   => m (DeploymentConfiguration m) -> m ()
@@ -160,7 +97,6 @@ cli mConfig = do
   let isGlobalStack = stackToProvision ^. globalStack
   when (env == "global" && not isGlobalStack) $
     throwing _CliStackNotGlobal nameToProvision
-
   when (env /= "global" && isGlobalStack) $
     throwing _CliGlobalStackMustProvisionToGlobal nameToProvision
 
@@ -171,10 +107,8 @@ cli mConfig = do
       paramSpecs = template ^. parameterSpecs._Wrapped
   newStackOrPreviousValues <- getStackProvisionType $ mkFullStackName env appName nameToProvision
   allTags <- getTags config stackToProvision env appName
-  initialParams <- getParameters newStackOrPreviousValues paramSources paramSpecs dependencies env appName
 
-  allParams <- runCreateHooks stackToProvision initialParams
-  assertNoMissingRequiredParameters allParams paramSpecs
+  allParams <- getParameters newStackOrPreviousValues config stackToProvision paramSources paramSpecs dependencies env appName
 
   let fullStackName = mkFullStackName env appName nameToProvision
   csId <- computeChangeset fullStackName newStackOrPreviousValues templateBody allParams allTags
@@ -218,19 +152,26 @@ getTags config stackToProvision env appName =
 getParameters
   :: forall e m. (AsCliError e, MonadError e m, MonadCLI m, MonadEnvironment m, MonadCloud m)
   => ProvisionType
+  -> DeploymentConfiguration m
+  -> StackConfiguration m
   -> S.Set (T.Text, ParameterSource) -- ^ parameter sources to fetch values for
   -> S.Set ParameterSpec -- ^ parameter specs from the template currently being deployed
   -> [StackConfiguration m] -- ^ stack dependencies
   -> T.Text -- ^ name of environment being deployed to
   -> T.Text -- ^ name of application being deployed
   -> m (M.Map T.Text ParameterValue)
-getParameters provisionType paramSources allParamSpecs dependencies env appName = do
+getParameters provisionType config stackToProvision paramSources allParamSpecs dependencies env appName = do
     let paramSpecs = setRequiredSpecsWithPreviousValuesToOptional allParamSpecs
         constants  = paramSources ^..* folded.aside _Constant.to (second Value)
-    fetchedParams <- S.unions <$> sequence [envVars, flags paramSpecs, outputs]
-    let allParams  = S.insert ("Env", Value env) (constants <> fetchedParams)
-    validateParameters paramSpecs allParams
-
+    outputs' <- outputs
+    flags' <- flags paramSpecs
+    envVars' <- envVars
+    let fetchedParams = S.unions [envVars', flags', S.map (second Value) outputs']
+    let initialParams = S.insert ("Env", Value env) (constants <> fetchedParams)
+    validInitialParams <- validateParameters paramSpecs initialParams
+    postHookParams <- runCreateHooks validInitialParams outputs'
+    assertNoMissingRequiredParameters postHookParams paramSpecs
+    return postHookParams
   where
     setRequiredSpecsWithPreviousValuesToOptional :: S.Set ParameterSpec -> S.Set ParameterSpec
     setRequiredSpecsWithPreviousValuesToOptional pSpecs = do
@@ -261,14 +202,14 @@ getParameters provisionType paramSources allParamSpecs dependencies env appName 
         throwing _CliExtraParameterFlags paramFlagsNotInTemplate
       S.fromList . M.toList <$> getOptions flaggedParamSpecs
 
-    outputs :: m (S.Set (T.Text, ParameterValue))
+    outputs :: m (S.Set (T.Text, T.Text))
     outputs = do
         maybeLocalOutputs <- getOutputs (\s -> not (s ^. globalStack)) env
         maybeGlobalOutputs <- getOutputs (^. globalStack) "global"
 
         let maybeOutputs = maybeLocalOutputs <> maybeGlobalOutputs
             outputsOrFailure = runErrors $ traverse (extractResult (flip const)) maybeOutputs
-        either (throwing _CliMissingDependencyStacks) (return . S.fromList . fmap (second Value) . concatMap M.toList) outputsOrFailure
+        either (throwing _CliMissingDependencyStacks) (return . S.fromList . concatMap M.toList) outputsOrFailure
       where
         getOutputs predicate envName = do
           let filteredDependencies = dependencies ^.. folded.filtered predicate
@@ -277,35 +218,31 @@ getParameters provisionType paramSources allParamSpecs dependencies env appName 
 
     validateParameters :: S.Set ParameterSpec -> S.Set (T.Text, ParameterValue) -> m (M.Map T.Text ParameterValue)
     validateParameters paramSpecs params = do
-      let allowedParamNames = paramSpecs ^..* folded.parameterKey
 
       uniqueParams <- assertUnique _CliDuplicateParameterValues params
 
+      let allowedParamNames = paramSpecs ^..* folded.parameterKey
       let previousParams = M.fromList $ S.toAscList $ paramSpecs ^..* folded._Optional.filtered (has $ _2._UsePreviousValue)
       let allUniqueParams = M.union uniqueParams previousParams
 
       return $ allUniqueParams `M.intersection` M.fromSet (const ()) allowedParamNames
 
-runCreateHooks
-  :: (AsCliError e, MonadError e m)
-  => StackConfiguration m -> M.Map T.Text ParameterValue -> m (M.Map T.Text ParameterValue)
-runCreateHooks stackToProvision params = do
-  let createHooks = coerce <$> (stackToProvision ^. hooksCreate)
-      allParamValues = M.mapMaybe (^? _Value) params
-  createHookParamSet <- runReaderT (execStateT (sequence createHooks) S.empty) allParamValues
-  let createHookParamSet' = S.map (second Value) createHookParamSet
-  createHookParams <- assertUnique _CliDuplicateParameterValues createHookParamSet'
-  return $ M.union createHookParams params
+    runCreateHooks :: M.Map T.Text ParameterValue -> S.Set (T.Text, T.Text) -> m (M.Map T.Text ParameterValue)
+    runCreateHooks params outputs' = do
+      let createHooks = coerce <$> (stackToProvision ^. hooksCreate)
+          initialParamValues = M.mapMaybeWithKey (\_ v -> v ^? _Value) params
+      let hookContext = HookContext outputs' config stackToProvision
+      createHookParamsOrFailure <- runReaderT (runExceptT $ execStateT (sequence createHooks) initialParamValues) hookContext
+      createHookParams <- either (throwing _CliError) return createHookParamsOrFailure
+      return $ M.mapWithKey (\_ v -> Value v) createHookParams `M.union` params
 
-assertNoMissingRequiredParameters
-  :: (AsCliError e, MonadError e m)
-  => M.Map T.Text ParameterValue -> S.Set ParameterSpec -> m ()
-assertNoMissingRequiredParameters params paramSpecs = do
-  let requiredParamNames = paramSpecs ^..* folded._Required
-  uniqueParams <- assertUnique _CliDuplicateParameterValues (S.fromList $ M.toAscList params)
-  let missingParamNames = requiredParamNames S.\\ M.keysSet uniqueParams
-  unless (S.null missingParamNames) $
-    throwing _CliMissingRequiredParameters missingParamNames
+    assertNoMissingRequiredParameters :: M.Map T.Text ParameterValue -> S.Set ParameterSpec -> m ()
+    assertNoMissingRequiredParameters params paramSpecs = do
+      let requiredParamNames = paramSpecs ^..* folded._Required
+      uniqueParams <- assertUnique _CliDuplicateParameterValues (S.fromList $ M.toAscList params)
+      let missingParamNames = requiredParamNames S.\\ M.keysSet uniqueParams
+      unless (S.null missingParamNames) $
+        throwing _CliMissingRequiredParameters missingParamNames
 
 cliIO :: AppM (DeploymentConfiguration AppM) -> IO ()
 cliIO mConfig = runAppM $ cli mConfig

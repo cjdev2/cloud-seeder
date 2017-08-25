@@ -7,6 +7,8 @@ extra-deps:
 - amazonka-1.4.5
 - amazonka-cloudformation-1.4.5
 - amazonka-core-1.4.5
+- amazonka-kms-1.4.5
+- amazonka-s3-1.4.5
 - cpphs-1.20.8
 - http-client-0.5.7.0
 - http-client-tls-0.3.5.1

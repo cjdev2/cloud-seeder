@@ -13,20 +13,24 @@ module Network.CloudSeeder.DSL
   , HasHooksCreate(..)
   , CanSetConstant(..)
   , CreateT(..)
+  , HookContext(..)
+  , databasePassword
+  , deploymentConfiguration
+  , stackConfiguration
   , deployment
   , environment
   , flag
   , global
   , tags
   , onCreate
-  , param
-  , hookParam
   , stack_
   , stack
   ) where
 
-import Control.Lens ((%=), (.=))
-import Control.Monad.Reader (ReaderT)
+import Control.Lens ((%=), (.=), (^.))
+import Control.Monad.Except (MonadError(..), ExceptT)
+import Control.Monad.Error.Lens (throwing)
+import Control.Monad.Reader (MonadReader(..), ReaderT, ask)
 import Control.Monad.State (StateT, execStateT, modify)
 import Control.Monad.Trans.Class (MonadTrans, lift)
 import Control.Lens.TH (makeFields)
@@ -36,13 +40,21 @@ import qualified Data.Map as M
 import qualified Data.Set as S
 import qualified Data.Text as T
 
+import Network.CloudSeeder.Error
 import Network.CloudSeeder.Types
+import Network.CloudSeeder.Interfaces
 
-newtype CreateT m a = CreateT (StateT (S.Set (T.Text, T.Text)) (ReaderT (M.Map T.Text T.Text) m) a)
-  deriving (Functor, Applicative, Monad)
+data HookContext m = HookContext
+  { _hookContextOutputs :: S.Set (T.Text, T.Text)
+  , _hookContextDeploymentConfiguration :: DeploymentConfiguration m
+  , _hookContextStackConfiguration :: StackConfiguration m
+  }
+
+newtype CreateT m a = CreateT (StateT (M.Map T.Text T.Text) (ExceptT CliError (ReaderT (HookContext m) m)) a)
+  deriving (Functor, Applicative, Monad, MonadError CliError)
 
 instance MonadTrans CreateT where
-  lift = CreateT . lift . lift
+  lift = CreateT . lift . lift . lift
 
 data DeploymentConfiguration m = DeploymentConfiguration
   { _deploymentConfigurationName :: T.Text
@@ -61,15 +73,16 @@ data StackConfiguration m = StackConfiguration
 
 makeFields ''DeploymentConfiguration
 makeFields ''StackConfiguration
+makeFields ''HookContext
 
 class Monad m => CanSetConstant m where
-  constant :: T.Text -> T.Text -> m ()
+  param :: T.Text -> T.Text -> m ()
 
 instance Monad m => CanSetConstant (CreateT m) where
-  constant key val = CreateT $ modify (S.insert (key, val))
+  param key val = CreateT $ modify (M.insert key val)
 
 instance (Monad m, HasParameterSources s (S.Set (T.Text, ParameterSource))) => CanSetConstant (StateT s m) where
-  constant key val = paramSource key (Constant val)
+  param key val = paramSource key (Constant val)
 
 deployment :: Monad m => T.Text -> StateT (DeploymentConfiguration m) m a -> m (DeploymentConfiguration m)
 deployment name' x =
@@ -100,13 +113,6 @@ flag :: (Monad m, HasParameterSources a (S.Set (T.Text, ParameterSource)))
      => T.Text -> StateT a m ()
 flag pName = paramSource pName Flag
 
-param :: (Monad m, HasParameterSources a (S.Set (T.Text, ParameterSource)))
-      => T.Text -> T.Text -> StateT a m ()
-param key val = paramSource key (Constant val)
-
-hookParam :: Monad m => T.Text -> T.Text -> StateT (S.Set (T.Text, T.Text)) m ()
-hookParam key val = modify (S.insert (key, val))
-
 tags :: (Monad m, HasTagSet a (S.Set (T.Text, T.Text)))
      => [(T.Text, T.Text)] -> StateT a m ()
 tags ts = tagSet %= (<> S.fromList ts)
@@ -114,3 +120,15 @@ tags ts = tagSet %= (<> S.fromList ts)
 onCreate :: (Monad m, HasHooksCreate s [CreateT m ()])
          => CreateT m () -> StateT s m ()
 onCreate action = hooksCreate %= (++ [action])
+
+databasePassword :: (MonadCloud m) => CreateT m ()
+databasePassword = do
+  context <- CreateT ask
+  let outputs' = context ^. outputs
+      outputsMap = M.fromList . S.toAscList $ outputs'
+      path = (context ^. deploymentConfiguration.name) <> "/dbpass"
+  encryptionKeyId <- maybe (throwing _CliMissingRequiredOutput "EncryptionKey")
+    return (M.lookup ("EncryptionKey" :: T.Text) outputsMap)
+  secretsStore <- maybe (throwing _CliMissingRequiredOutput "SecretsStore")
+    return (M.lookup "SecretsStore" outputsMap)
+  CreateT $ generateEncryptUploadSecret 128 encryptionKeyId secretsStore path

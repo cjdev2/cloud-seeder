@@ -18,6 +18,7 @@ import GHC.Exts (IsList(..))
 import Test.Hspec
 
 import Network.CloudSeeder.DSL
+import Network.CloudSeeder.Error
 import Network.CloudSeeder.Interfaces
 import Network.CloudSeeder.Main
 import Network.CloudSeeder.Types
@@ -130,6 +131,8 @@ spec =
             , RunChangeSet "csid" :-> () ]
 
       it "passes only the outputs from previous stacks that are listed in this template's Parameters" $ do
+
+
         let serverTemplate = rootTemplate
                           <> "  foo:\n"
                           <> "    Type: String\n"
@@ -157,7 +160,6 @@ spec =
                 rootExpectedTags
                 :-> "csid"
             , RunChangeSet "csid" :-> () ]
-
 
         let frontendtemplate = rootTemplate
                             <> "  foo:\n"
@@ -639,7 +641,7 @@ spec =
           let config' = deployment "foo" $
                 stack "base" $
                   onCreate $
-                    constant "bucketName" "the-best-bucket"
+                    param "bucketName" "the-best-bucket"
           let template' = "Parameters:\n"
                        <> "  Env:\n"
                        <> "    Type: String\n"
@@ -667,7 +669,7 @@ spec =
                 stack "base" $ do
                   param "bucketName" "the-worst-bucket"
                   onCreate $
-                    constant "bucketName" "the-best-bucket"
+                    param "bucketName" "the-best-bucket"
           let template' = "Parameters:\n"
                        <> "  Env:\n"
                        <> "    Type: String\n"
