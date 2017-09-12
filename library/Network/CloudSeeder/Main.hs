@@ -230,11 +230,11 @@ getParameters provisionType config stackToProvision paramSources allParamSpecs d
     runCreateHooks :: M.Map T.Text ParameterValue -> S.Set (T.Text, T.Text) -> m (M.Map T.Text ParameterValue)
     runCreateHooks params outputs' = do
       let createHooks = coerce <$> (stackToProvision ^. hooksCreate)
-          initialParamValues = M.mapMaybeWithKey (\_ v -> v ^? _Value) params
+          initialParamValues = M.mapMaybe (^? _Value) params
       let hookContext = HookContext outputs' config stackToProvision
       createHookParamsOrFailure <- runReaderT (runExceptT $ execStateT (sequence createHooks) initialParamValues) hookContext
       createHookParams <- either (throwing _CliError) return createHookParamsOrFailure
-      return $ M.mapWithKey (\_ v -> Value v) createHookParams `M.union` params
+      return $ M.map Value createHookParams `M.union` params
 
     assertNoMissingRequiredParameters :: M.Map T.Text ParameterValue -> S.Set ParameterSpec -> m ()
     assertNoMissingRequiredParameters params paramSpecs = do

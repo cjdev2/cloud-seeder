@@ -14,7 +14,7 @@ module Network.CloudSeeder.DSL
   , CanSetConstant(..)
   , CreateT(..)
   , HookContext(..)
-  , databasePassword
+  , password
   , deploymentConfiguration
   , stackConfiguration
   , deployment
@@ -121,14 +121,19 @@ onCreate :: (Monad m, HasHooksCreate s [CreateT m ()])
          => CreateT m () -> StateT s m ()
 onCreate action = hooksCreate %= (++ [action])
 
-databasePassword :: (MonadCloud m) => CreateT m ()
-databasePassword = do
+-- | Generates and stores a password
+password :: (MonadCloud m)
+  => T.Text -- ^ path in S3 bucket to store the password
+  -> Int -- ^ desired password length
+  -> T.Text -- ^ output that exports the encryption key
+  -> T.Text -- ^ output that exports the bucket where secrets are stored
+  -> CreateT m ()
+password path passwordLength encryptionKeyOutput secretsStoreOutput = do
   context <- CreateT ask
   let outputs' = context ^. outputs
       outputsMap = M.fromList . S.toAscList $ outputs'
-      path = (context ^. deploymentConfiguration.name) <> "/dbpass"
-  encryptionKeyId <- maybe (throwing _CliMissingRequiredOutput "EncryptionKey")
-    return (M.lookup ("EncryptionKey" :: T.Text) outputsMap)
-  secretsStore <- maybe (throwing _CliMissingRequiredOutput "SecretsStore")
-    return (M.lookup "SecretsStore" outputsMap)
-  CreateT $ generateEncryptUploadSecret 128 encryptionKeyId secretsStore path
+  encryptionKeyId <- maybe (throwing _CliMissingRequiredOutput encryptionKeyOutput)
+    return (M.lookup encryptionKeyOutput outputsMap)
+  secretsStore <- maybe (throwing _CliMissingRequiredOutput secretsStoreOutput)
+    return (M.lookup secretsStoreOutput outputsMap)
+  CreateT $ generateEncryptUploadSecret passwordLength encryptionKeyId secretsStore path
