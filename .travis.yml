@@ -37,10 +37,10 @@ before_install:
 - travis_retry curl -L https://www.stackage.org/stack/linux-x86_64 | tar xz --wildcards --strip-components=1 -C ~/.local/bin '*/stack'
 
 install:
-- stack --no-terminal --install-ghc $ARGS test --bench --only-dependencies
+- stack --no-terminal --install-ghc $ARGS test --bench --only-dependencies -j1
 
 script:
-- stack --no-terminal $ARGS test --bench --no-run-benchmarks --haddock --no-haddock-deps --ghc-options=-Werror
+- stack --no-terminal $ARGS test --bench --no-run-benchmarks --haddock --no-haddock-deps --ghc-options=-Werror -j1
 
 before_cache:
 - stack --no-terminal $ARGS clean cloud-seeder
