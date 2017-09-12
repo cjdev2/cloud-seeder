@@ -16,19 +16,19 @@ Resources:
   Network:
     Type: AWS::CloudFormation::Stack
     Properties:
-      TemplateURL: https://s3.amazonaws.com/matryoshka-template-store/network_v0.yaml
+      TemplateURL: https://s3.amazonaws.com/matryoshka-template-store/network/v0.yaml
       Parameters:
         Ec2KeyPairName: testing-20161206
   Security:
     Type: AWS::CloudFormation::Stack
     Properties:
-      TemplateURL: https://s3.amazonaws.com/matryoshka-template-store/security_v0.yaml
+      TemplateURL: https://s3.amazonaws.com/matryoshka-template-store/security/v0.yaml
       Parameters:
         Env: !Ref Env
   DeploymentCluster:
     Type: AWS::CloudFormation::Stack
     Properties:
-      TemplateURL: https://s3.amazonaws.com/matryoshka-template-store/deployment-cluster_v0.yaml
+      TemplateURL: https://s3.amazonaws.com/matryoshka-template-store/deployment-cluster/v0.yaml
       Parameters:
         Vpc: !GetAtt Network.Outputs.VPC
         NetworkServiceSubnets: !GetAtt Network.Outputs.NetworkServiceSubnets
