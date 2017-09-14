@@ -122,7 +122,7 @@ onCreate :: (Monad m, HasHooksCreate s [CreateT m ()])
 onCreate action = hooksCreate %= (++ [action])
 
 -- | Generates and stores a password
-password :: (MonadCloud m)
+password :: MonadCloud CliError m
   => T.Text -- ^ path in S3 bucket to store the password
   -> Int -- ^ desired password length
   -> T.Text -- ^ output that exports the encryption key

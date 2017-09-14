@@ -24,7 +24,7 @@ import Network.CloudSeeder.Interfaces
 
 newtype ArgumentsT m a = ArgumentsT (ReaderT [String] m a)
   deriving ( Functor, Applicative, Monad, MonadTrans, MonadError e
-           , MonadWriter w, MonadLogger, MonadFileSystem e, MonadCloud
+           , MonadWriter w, MonadLogger, MonadFileSystem e, MonadCloud e
            , MonadEnvironment )
 
 -- | Runs a computation with access to a set of command-line arguments.
@@ -57,7 +57,7 @@ parserResult _ = error "parserResult: completion encountered"
 
 newtype LoggerT m a = LoggerT (WriterT [ByteString] m a)
   deriving ( Functor, Applicative, Monad, MonadTrans, MonadError e
-           , MonadCLI, MonadFileSystem e, MonadCloud, MonadEnvironment )
+           , MonadCLI, MonadFileSystem e, MonadCloud e, MonadEnvironment )
 
 -- | Runs a computation that may emit log messages, returning the result of the
 -- computation combined with the set of messages logged, in order.
@@ -81,7 +81,7 @@ instance Monad m => MonadLogger (LoggerT m) where
 
 newtype FileSystemT m a = FileSystemT (ReaderT [(T.Text, T.Text)] m a)
   deriving ( Functor, Applicative, Monad, MonadTrans, MonadError e
-           , MonadWriter w , MonadCLI, MonadLogger, MonadCloud
+           , MonadWriter w , MonadCLI, MonadLogger, MonadCloud e
            , MonadEnvironment )
 
 -- | Runs a computation that may interact with the file system, given a mapping
@@ -100,7 +100,7 @@ instance (AsFileSystemError e, MonadError e m) => MonadFileSystem e (FileSystemT
 newtype EnvironmentT m a = EnvironmentT (ReaderT (M.Map T.Text T.Text) m a)
   deriving ( Functor, Applicative, Monad, MonadTrans, MonadError e
            , MonadWriter w, MonadCLI, MonadLogger, MonadFileSystem e
-           , MonadCloud )
+           , MonadCloud e )
 
 stubEnvironmentT :: M.Map T.Text T.Text -> EnvironmentT m a -> m a
 stubEnvironmentT fs (EnvironmentT x) = runReaderT x fs

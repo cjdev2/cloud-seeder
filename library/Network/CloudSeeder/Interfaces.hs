@@ -18,6 +18,9 @@ module Network.CloudSeeder.Interfaces
   , upload'
   , generateSecret'
   , generateEncryptUploadSecret
+  , CloudError(..)
+  , HasCloudError(..)
+  , AsCloudError(..)
 
   , MonadEnvironment(..)
   , StackName(..)
@@ -36,7 +39,7 @@ import Control.DeepSeq (NFData)
 import Control.Exception (throw)
 import Control.Lens (Traversal', (.~), (^.), (^?), (?~), _Just, only, to)
 import Control.Lens.TH (makeClassy, makeClassyPrisms)
-import Control.Monad (void, unless, when)
+import Control.Monad (void, when)
 import Control.Monad.Base (MonadBase, liftBase)
 import Control.Monad.Catch (MonadCatch, MonadThrow)
 import Control.Monad.Error.Lens (throwing)
@@ -153,7 +156,15 @@ instance (MonadFileSystem e m, Monoid w) => MonadFileSystem e (WriterT w m)
 
 --------------------------------------------------------------------------------
 -- | A class of monads that can interact with cloud deployments.
-class Monad m => MonadCloud m where
+data CloudError
+  = CloudErrorInternal T.Text
+  | CloudErrorUser T.Text
+  deriving (Eq, Show)
+
+makeClassy ''CloudError
+makeClassyPrisms ''CloudError
+
+class (AsCloudError e, MonadError e m) => MonadCloud e m | m -> e where
   computeChangeset :: StackName -> ProvisionType -> T.Text -> M.Map T.Text ParameterValue -> M.Map T.Text T.Text -> m T.Text
   getStackInfo :: StackName -> m (Maybe Stack)
   getStackOutputs :: StackName -> m (Maybe (M.Map T.Text T.Text))
@@ -162,34 +173,34 @@ class Monad m => MonadCloud m where
   upload :: T.Text -> T.Text -> B.ByteString -> m ()
   generateSecret :: Int -> m T.Text
 
-  default computeChangeset :: (MonadTrans t, MonadCloud m', m ~ t m') => StackName -> ProvisionType -> T.Text -> M.Map T.Text ParameterValue -> M.Map T.Text T.Text -> m T.Text
+  default computeChangeset :: (MonadTrans t, MonadCloud e m', m ~ t m') => StackName -> ProvisionType -> T.Text -> M.Map T.Text ParameterValue -> M.Map T.Text T.Text -> m T.Text
   computeChangeset a b c d e = lift $ computeChangeset a b c d e
 
-  default getStackInfo :: (MonadTrans t, MonadCloud m', m ~ t m') => StackName -> m (Maybe Stack)
+  default getStackInfo :: (MonadTrans t, MonadCloud e m', m ~ t m') => StackName -> m (Maybe Stack)
   getStackInfo = lift . getStackInfo
 
-  default getStackOutputs :: (MonadTrans t, MonadCloud m', m ~ t m') => StackName -> m (Maybe (M.Map T.Text T.Text))
+  default getStackOutputs :: (MonadTrans t, MonadCloud e m', m ~ t m') => StackName -> m (Maybe (M.Map T.Text T.Text))
   getStackOutputs = lift . getStackOutputs
 
-  default runChangeSet :: (MonadTrans t, MonadCloud m', m ~ t m') => T.Text -> m ()
+  default runChangeSet :: (MonadTrans t, MonadCloud e m', m ~ t m') => T.Text -> m ()
   runChangeSet = lift . runChangeSet
 
-  default encrypt :: (MonadTrans t, MonadCloud m', m ~ t m') => T.Text -> T.Text -> m B.ByteString
+  default encrypt :: (MonadTrans t, MonadCloud e m', m ~ t m') => T.Text -> T.Text -> m B.ByteString
   encrypt a b = lift $ encrypt a b
 
-  default upload :: (MonadTrans t, MonadCloud m', m ~ t m') => T.Text -> T.Text -> B.ByteString -> m ()
+  default upload :: (MonadTrans t, MonadCloud e m', m ~ t m') => T.Text -> T.Text -> B.ByteString -> m ()
   upload a b c = lift $ upload a b c
 
-  default generateSecret :: (MonadTrans t, MonadCloud m', m ~ t m') => Int -> m T.Text
+  default generateSecret :: (MonadTrans t, MonadCloud e m', m ~ t m') => Int -> m T.Text
   generateSecret = lift . generateSecret
 
-type MonadCloudIO r m = (HasEnv r, MonadReader r m, MonadIO m, MonadBaseControl IO m, MonadCatch m, MonadThrow m)
+type MonadCloudIO r e m = (HasEnv r, MonadReader r m, MonadIO m, MonadBaseControl IO m, MonadCatch m, MonadThrow m, AsCloudError e, MonadError e m)
 
 _StackDoesNotExistError :: AsError a => StackName -> Traversal' a ()
 _StackDoesNotExistError (StackName stackName) = _ServiceError.serviceMessage._Just.only (ErrorMessage msg)
   where msg = "Stack with id " <> stackName <> " does not exist"
 
-computeChangeset' :: MonadCloudIO r m => StackName -> ProvisionType -> T.Text -> M.Map T.Text ParameterValue -> M.Map T.Text T.Text -> m T.Text
+computeChangeset' :: MonadCloudIO r e m => StackName -> ProvisionType -> T.Text -> M.Map T.Text ParameterValue -> M.Map T.Text T.Text -> m T.Text
 computeChangeset' (StackName stackName) provisionType templateBody params tags = do
     uuid <- liftBase nextRandom
     let changeSetName = "cs-" <> toText uuid -- change set name must begin with a letter
@@ -203,7 +214,7 @@ computeChangeset' (StackName stackName) provisionType templateBody params tags =
             & AWS.ccsTags .~ map awsTag (M.toList tags)
             & AWS.ccsChangeSetType ?~ provisionTypeToChangeSetType provisionType
       response <- send request
-      maybe (fail "computeChangeset: createChangeSet did not return a valid response.")
+      maybe (throwing _CloudErrorInternal "createChangeSet did not return a valid response.")
             return (response ^. AWS.ccsrsId)
   where
     awsParam (key, Value val) = AWS.parameter
@@ -218,7 +229,7 @@ computeChangeset' (StackName stackName) provisionType templateBody params tags =
     provisionTypeToChangeSetType CreateStack = AWS.Create
     provisionTypeToChangeSetType (UpdateStack _) = AWS.Update
 
-getStackInfo' :: MonadCloudIO r m => StackName -> m (Maybe Stack)
+getStackInfo' :: MonadCloudIO r e m => StackName -> m (Maybe Stack)
 getStackInfo' (StackName stackName) = do
   env <- ask
   let request = AWS.describeStacks & AWS.dStackName ?~ stackName
@@ -231,14 +242,13 @@ getStackInfo' (StackName stackName) = do
         params <- S.fromList <$> mapM awsParameterKey awsParams
         let stack = Stack params
         return $ Just stack
-      Just _ -> fail "getStackOutputs: the impossible happened--describeStacks returned more than one stack"
+      Just _ -> throwing _CloudErrorInternal "describeStacks returned more than one stack"
   where
-    awsParameterKey :: Monad m => AWS.Parameter -> m T.Text
     awsParameterKey x = case x ^. AWS.pParameterKey of
       (Just k) -> return k
-      Nothing -> fail "getStackProvisionType: the impossible happened--stack parameter key was missing"
+      Nothing -> throwing _CloudErrorInternal "stack parameter key was missing"
 
-getStackOutputs' :: MonadCloudIO r m => StackName -> m (Maybe (M.Map T.Text T.Text))
+getStackOutputs' :: MonadCloudIO r e m => StackName -> m (Maybe (M.Map T.Text T.Text))
 getStackOutputs' (StackName stackName) = do
     env <- ask
     let request = AWS.describeStacks & AWS.dStackName ?~ stackName
@@ -247,15 +257,14 @@ getStackOutputs' (StackName stackName) = do
       case response ^? _Just.AWS.dsrsStacks of
         Nothing -> return Nothing
         Just [stack] -> Just . M.fromList <$> mapM outputToTuple (stack ^. AWS.sOutputs)
-        Just _ -> fail "getStackOutputs: the impossible happened--describeStacks returned more than one stack"
+        Just _ -> throwing _CloudErrorInternal "describeStacks returned more than one stack"
   where
-    outputToTuple :: Monad m => AWS.Output -> m (T.Text, T.Text)
     outputToTuple x = case (x ^. AWS.oOutputKey, x ^. AWS.oOutputValue) of
       (Just k, Just v) -> return (k, v)
-      (Nothing, _) -> fail "getStackOutputs: the impossible happened--stack output key was missing"
-      (_, Nothing) -> fail "getStackOutputs: the impossible happened--stack output value was missing"
+      (Nothing, _) -> throwing _CloudErrorInternal "stack output key was missing"
+      (_, Nothing) -> throwing _CloudErrorInternal "stack output value was missing"
 
-runChangeSet' :: MonadCloudIO r m => T.Text -> m ()
+runChangeSet' :: MonadCloudIO r e m => T.Text -> m ()
 runChangeSet' csId = do
     env <- ask
     waitUntilChangeSetReady env
@@ -268,46 +277,55 @@ runChangeSet' csId = do
         send (AWS.describeChangeSet csId)
       execStatus <- case cs ^. AWS.drsExecutionStatus of
         Just x -> return x
-        Nothing -> fail "runChangeSet: the impossible happened--change set lacks execution status"
-      unless (execStatus == AWS.Available) $ void $ waitUntilChangeSetReady env
+        Nothing -> throwing _CloudErrorInternal "change set lacks execution status"
+      case cs ^. AWS.drsStatus of
+        AWS.CSSFailed -> throwing _CloudErrorUser "change set creation failed--there were probably no changes"
+        _ -> return ()
+      case execStatus of
+        AWS.Available -> return ()
+        AWS.ExecuteComplete -> throwing _CloudErrorInternal "change set execution already complete"
+        AWS.ExecuteFailed -> throwing _CloudErrorInternal "change set execution failed"
+        AWS.ExecuteInProgress -> throwing _CloudErrorInternal "change set execution in progress"
+        AWS.Obsolete -> throwing _CloudErrorInternal "change set is obsolete"
+        AWS.Unavailable -> void $ waitUntilChangeSetReady env
 
-generateSecret' :: MonadCloudIO r m => Int -> m T.Text
+generateSecret' :: MonadCloudIO r e m => Int -> m T.Text
 generateSecret' len = do
   g :: SystemRandom <- liftBase newGenIO
   let (bytes, _) = either (throw NeedReseed) id (genBytes len g)
       ascii = convertText $ Base64 bytes
   return $ T.take len ascii
 
-encrypt' :: MonadCloudIO r m => T.Text -> T.Text -> m B.ByteString
+encrypt' :: MonadCloudIO r e m => T.Text -> T.Text -> m B.ByteString
 encrypt' input encryptionKeyId = do
   env <- ask
   runResourceT . runAWST env $ do
     let (UTF8 inputBS) = convertText input :: UTF8 B.ByteString
         request = KMS.encrypt encryptionKeyId inputBS
     response <- send request
-    maybe (fail "encrypt: encrypt did not return a valid response.")
+    maybe (throwing _CloudErrorInternal "encrypt did not return a valid response.")
       return (response ^. KMS.ersCiphertextBlob)
 
-upload' :: MonadCloudIO r m => T.Text -> T.Text -> B.ByteString -> m ()
+upload' :: MonadCloudIO r e m => T.Text -> T.Text -> B.ByteString -> m ()
 upload' bucket path payload = do
   env <- ask
   runResourceT . runAWST env $ do
     let request = S3.putObject (S3.BucketName bucket) (S3.ObjectKey path) (AWS.toBody payload)
     _ <- send request
-    maybe (fail "upload: putObject did not return a valid response.")
+    maybe (throwing _CloudErrorInternal "putObject did not return a valid response.")
       return $ return ()
 
-generateEncryptUploadSecret :: (MonadCloud m) => Int -> T.Text -> T.Text -> T.Text -> m ()
+generateEncryptUploadSecret :: MonadCloud e m => Int -> T.Text -> T.Text -> T.Text -> m ()
 generateEncryptUploadSecret len encryptionKeyId bucket path = do
   secret <- generateSecret len
   encrypted <- encrypt secret encryptionKeyId
   upload bucket path encrypted
 
-instance MonadCloud m => MonadCloud (ExceptT e m)
-instance MonadCloud m => MonadCloud (LoggingT m)
-instance MonadCloud m => MonadCloud (ReaderT r m)
-instance MonadCloud m => MonadCloud (StateT s m)
-instance (MonadCloud m, Monoid w) => MonadCloud (WriterT w m)
+instance MonadCloud e m => MonadCloud e (ExceptT e m)
+instance MonadCloud e m => MonadCloud e (LoggingT m)
+instance MonadCloud e m => MonadCloud e (ReaderT r m)
+instance MonadCloud e m => MonadCloud e (StateT s m)
+instance (MonadCloud e m, Monoid w) => MonadCloud e (WriterT w m)
 
 --------------------------------------------------------------------------------
 -- | A class of monads that can access environment variables

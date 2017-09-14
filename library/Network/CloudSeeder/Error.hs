@@ -30,6 +30,7 @@ data CliError
   | CliDuplicateParameterValues (M.Map T.Text [ParameterValue])
   | CliDuplicateTagValues (M.Map T.Text [T.Text])
   | CliExtraParameterFlags (S.Set T.Text)
+  | CliCloudError CloudError
   deriving (Eq, Show)
 
 makeClassy ''CliError
@@ -66,6 +67,11 @@ renderCliError (CliExtraParameterFlags ts)
   <> T.unlines (map (" " <>) (S.toAscList ts))
 renderCliError (CliMissingRequiredOutput t)
   = "the following required output was not present: '" <> t <> "'\n"
+renderCliError (CliCloudError (CloudErrorInternal msg))
+  = "the impossible happened while interacting with AWS: '" <> msg
+  <> "'. Please submit a bug report to the cloud-seeder project.\n"
+renderCliError (CliCloudError (CloudErrorUser msg))
+  = "user error when interacting with AWS: '" <> msg <> "' \n"
 
 renderKeysToManyVals :: M.Map T.Text [T.Text] -> T.Text
 renderKeysToManyVals xs = T.unlines $ map renderKeyToVals (M.toAscList xs)
@@ -79,3 +85,6 @@ renderKeysToManyParameterValues xs = T.unlines $ map renderKeyToMaybeVals (M.toA
 
 instance AsFileSystemError CliError where
   _FileSystemError = _CliFileSystemError
+
+instance AsCloudError CliError where
+  _CloudError = _CliCloudError

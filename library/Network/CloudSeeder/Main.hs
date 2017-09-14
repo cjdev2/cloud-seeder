@@ -64,7 +64,7 @@ instance MonadCLI AppM where
   getArgs = getArgs'
   getOptions = getOptions'
 
-instance MonadCloud AppM where
+instance MonadCloud CliError AppM where
   computeChangeset = computeChangeset'
   getStackInfo = getStackInfo'
   getStackOutputs = getStackOutputs'
@@ -83,7 +83,7 @@ runAppM (AppM x) = do
 -- Logic
 
 cli
-  :: (MonadCLI m, MonadCloud m, MonadFileSystem CliError m, MonadEnvironment m)
+  :: (AsCliError e, MonadCLI m, MonadCloud e m, MonadFileSystem e m, MonadEnvironment m)
   => m (DeploymentConfiguration m) -> m ()
 cli mConfig = do
   config <- mConfig
@@ -114,7 +114,7 @@ cli mConfig = do
   csId <- computeChangeset fullStackName newStackOrPreviousValues templateBody allParams allTags
   runChangeSet csId
 
-getStackProvisionType :: (MonadCloud m) => StackName -> m ProvisionType
+getStackProvisionType :: (MonadCloud e m) => StackName -> m ProvisionType
 getStackProvisionType stackName = do
   maybeStack <- getStackInfo stackName
   case maybeStack of
@@ -150,7 +150,7 @@ getTags config stackToProvision env appName =
 -- | Fetches parameter values for all param sources, handling potential errors
 -- and misconfigurations.
 getParameters
-  :: forall e m. (AsCliError e, MonadError e m, MonadCLI m, MonadEnvironment m, MonadCloud m)
+  :: forall e m. (AsCliError e, MonadError e m, MonadCLI m, MonadEnvironment m, MonadCloud e m)
   => ProvisionType
   -> DeploymentConfiguration m
   -> StackConfiguration m

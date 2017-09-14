@@ -41,7 +41,7 @@ instance MonadMissiles m => MonadMissiles (EnvironmentT m)
 instance MonadMissiles m => MonadMissiles (ArgumentsT m)
 instance MonadMissiles m => MonadMissiles (CreateT m)
 
-makeAction "CloudAction" [ts| MonadCloud, MonadMissiles |]
+makeAction "CloudAction" [ts| MonadCloud CliError, MonadMissiles |]
 mockActionT :: Monad m => [WithResult CloudAction] -> MockT CloudAction m a -> m a
 mockActionT = runMockT
 
@@ -62,7 +62,8 @@ spec =
     let stubExceptT :: ExceptT CliError m a -> m (Either CliError a)
         stubExceptT = runExceptT
         runSuccess x = runIdentity x `shouldBe` Right ()
-        runFailure p y x = runIdentity x `shouldBe` Left (review p y)
+        runFailure errPrism errContents action =
+          runIdentity action `shouldBe` Left (review errPrism errContents)
 
     it "fails if the template doesn't exist" $ do
       let config = deployment "foo" $ do
@@ -72,8 +73,8 @@ spec =
         & stubFileSystemT []
         & stubEnvironmentT []
         & stubCommandLineT serverTestArgs
-        & stubExceptT
         & mockActionT []
+        & stubExceptT
 
     it "fails if the template parameters can't be parsed" $ do
       let config = deployment "foo" $ stack_ "base"
@@ -82,8 +83,8 @@ spec =
         & stubFileSystemT [("base.yaml", "%invalid")]
         & stubEnvironmentT []
         & stubCommandLineT baseTestArgs
-        & stubExceptT
         & mockActionT []
+        & stubExceptT
 
     it "fails if user attempts to deploy a stack that doesn't exist in the config" $ do
       let config = deployment "foo" $ stack_ "base"
@@ -93,8 +94,8 @@ spec =
           [("base.yaml", rootTemplate)]
         & stubEnvironmentT []
         & stubCommandLineT fakeCliInput
-        & stubExceptT
         & mockActionT []
+        & stubExceptT
 
     it "fails if parameters required in the template are not supplied" $ do
       let baseTemplate =
@@ -109,8 +110,8 @@ spec =
         & stubFileSystemT [ ("base.yaml", baseTemplate) ]
         & stubEnvironmentT []
         & stubCommandLineT baseTestArgs
-        & stubExceptT
         & mockActionT [GetStackInfo "test-foo-base" :-> Nothing]
+        & stubExceptT
 
     context "the configuration does not have environment variables" $ do
       let config = deployment "foo" $ do
@@ -124,11 +125,11 @@ spec =
             [("base.yaml", rootTemplate)]
           & stubEnvironmentT []
           & stubCommandLineT baseTestArgs
-          & stubExceptT
           & mockActionT
             [ GetStackInfo "test-foo-base" :-> Nothing
             , ComputeChangeset "test-foo-base" CreateStack rootTemplate rootExpectedParams rootExpectedTags :-> "csid"
             , RunChangeSet "csid" :-> () ]
+          & stubExceptT
 
       it "passes only the outputs from previous stacks that are listed in this template's Parameters" $ do
 
@@ -148,7 +149,6 @@ spec =
             [ ("server.yaml", serverTemplate) ]
           & stubEnvironmentT []
           & stubCommandLineT serverTestArgs
-          & stubExceptT
           & mockActionT
             [ GetStackInfo "test-foo-server" :-> Nothing
             , GetStackOutputs "test-foo-base" :-> Just baseOutputs
@@ -160,6 +160,7 @@ spec =
                 rootExpectedTags
                 :-> "csid"
             , RunChangeSet "csid" :-> () ]
+          & stubExceptT
 
         let frontendtemplate = rootTemplate
                             <> "  foo:\n"
@@ -170,7 +171,6 @@ spec =
             [ ("frontend.yaml", frontendtemplate) ]
           & stubEnvironmentT []
           & stubCommandLineT ["provision", "frontend", "test"]
-          & stubExceptT
           & mockActionT
             [ GetStackInfo "test-foo-frontend" :-> Nothing
             , GetStackOutputs "test-foo-base" :-> Just baseOutputs
@@ -183,6 +183,7 @@ spec =
                 rootExpectedTags
                 :-> "csid"
             , RunChangeSet "csid" :-> () ]
+          & stubExceptT
 
       it "fails if a dependency stack does not exist" $ do
         runFailure _CliMissingDependencyStacks ["base"] $ cli config
@@ -190,33 +191,33 @@ spec =
             [ ("frontend.yaml", rootTemplate) ]
           & stubEnvironmentT []
           & stubCommandLineT ["provision", "frontend", "test"]
-          & stubExceptT
           & mockActionT
             [ GetStackInfo "test-foo-frontend" :-> Nothing
             , GetStackOutputs "test-foo-base" :-> Nothing
             , GetStackOutputs "test-foo-server" :-> Just [] ]
+          & stubExceptT
 
         runFailure _CliMissingDependencyStacks ["server"] $ cli config
           & stubFileSystemT
             [ ("frontend.yaml", rootTemplate) ]
           & stubEnvironmentT []
           & stubCommandLineT ["provision", "frontend", "test"]
-          & stubExceptT
           & mockActionT
             [ GetStackInfo "test-foo-frontend" :-> Nothing
             , GetStackOutputs "test-foo-base" :-> Just []
             , GetStackOutputs "test-foo-server" :-> Nothing ]
+          & stubExceptT
 
         runFailure _CliMissingDependencyStacks ["base", "server"] $ cli config
           & stubFileSystemT
             [ ("frontend.yaml", rootTemplate) ]
           & stubEnvironmentT []
           & stubCommandLineT ["provision", "frontend", "test"]
-          & stubExceptT
           & mockActionT
             [ GetStackInfo "test-foo-frontend" :-> Nothing
             , GetStackOutputs "test-foo-base" :-> Nothing
             , GetStackOutputs "test-foo-server" :-> Nothing ]
+          & stubExceptT
 
     context "the configuration has global environment variables" $ do
       let config = deployment "foo" $ do
@@ -238,11 +239,11 @@ spec =
             [ ("base.yaml", template) ]
           & stubEnvironmentT env
           & stubCommandLineT baseTestArgs
-          & stubExceptT
           & mockActionT
             [ GetStackInfo "test-foo-base" :-> Nothing
             , ComputeChangeset "test-foo-base" CreateStack template expectedParams rootExpectedTags :-> "csid"
             , RunChangeSet "csid" :-> () ]
+          & stubExceptT
 
       it "fails when a global environment variable is missing" $ do
         let env = [ ("Env", "test"), ("SecretsStore", "arn::aws:1234") ]
@@ -251,8 +252,8 @@ spec =
             [ ("base.yaml", rootTemplate) ]
           & stubEnvironmentT env
           & stubCommandLineT baseTestArgs
-          & stubExceptT
           & mockActionT [GetStackInfo "test-foo-base" :-> Nothing]
+          & stubExceptT
 
       it "reports all missing environment variables at once in alphabetical order" $
         runFailure _CliMissingEnvVars ["Domain", "SecretsStore"] $ cli config
@@ -260,8 +261,8 @@ spec =
             [ ("base.yaml", rootTemplate) ]
           & stubEnvironmentT []
           & stubCommandLineT baseTestArgs
-          & stubExceptT
           & mockActionT [GetStackInfo "test-foo-base" :-> Nothing]
+          & stubExceptT
 
     context "the configuration has global and local environment variables" $ do
       let config = deployment "foo" $ do
@@ -288,7 +289,6 @@ spec =
             [ ("base.yaml", baseTemplate) ]
           & stubEnvironmentT baseEnv
           & stubCommandLineT baseTestArgs
-          & stubExceptT
           & mockActionT
             [ GetStackInfo "test-foo-base" :-> Nothing
             , ComputeChangeset
@@ -299,6 +299,7 @@ spec =
                 rootExpectedTags
                 :-> "csid"
             , RunChangeSet "csid" :-> () ]
+          & stubExceptT
 
         let serverEnv = env <> [ ("Server1", "b"), ("Server2", "c") ]
             serverTemplate = template
@@ -312,7 +313,6 @@ spec =
             [ ("server.yaml", serverTemplate) ]
           & stubEnvironmentT serverEnv
           & stubCommandLineT serverTestArgs
-          & stubExceptT
           & mockActionT
             [ GetStackInfo "test-foo-server" :-> Nothing
             , GetStackOutputs "test-foo-base" :-> Just []
@@ -324,6 +324,7 @@ spec =
                 rootExpectedTags
                 :-> "csid"
             , RunChangeSet "csid" :-> () ]
+          & stubExceptT
 
     context "the configuration has global tags" $ do
       let globalTags :: TagList
@@ -341,7 +342,6 @@ spec =
             [ ("base.yaml", rootTemplate) ]
           & stubEnvironmentT []
           & stubCommandLineT baseTestArgs
-          & stubExceptT
           & mockActionT
             [ GetStackInfo "test-foo-base" :-> Nothing
             , ComputeChangeset
@@ -352,6 +352,7 @@ spec =
                 expectedTags
                 :-> "csid"
             , RunChangeSet "csid" :-> () ]
+          & stubExceptT
 
     context "the configuration has global and local tags" $ do
       let globalTags :: TagList
@@ -374,7 +375,6 @@ spec =
             [ ("base.yaml", rootTemplate) ]
           & stubEnvironmentT []
           & stubCommandLineT baseTestArgs
-          & stubExceptT
           & mockActionT
             [ GetStackInfo "test-foo-base" :-> Nothing
             , ComputeChangeset
@@ -385,13 +385,13 @@ spec =
                 expectedGlobalTags
                 :-> "csid"
             , RunChangeSet "csid" :-> () ]
+          & stubExceptT
 
         runSuccess $ cli config
           & stubFileSystemT
             [ ("server.yaml", rootTemplate) ]
           & stubEnvironmentT []
           & stubCommandLineT serverTestArgs
-          & stubExceptT
           & mockActionT
             [ GetStackInfo "test-foo-server" :-> Nothing
             , GetStackOutputs "test-foo-base" :-> Just []
@@ -403,6 +403,7 @@ spec =
                 expectedServerTags
                 :-> "csid"
             , RunChangeSet "csid" :-> () ]
+          & stubExceptT
 
     context "monadic logic" $
       context "can make decisions based on the env passed in" $ do
@@ -426,7 +427,6 @@ spec =
               [ ("base.yaml", template) ]
             & stubEnvironmentT []
             & stubCommandLineT ["provision", "base", "prod"]
-            & stubExceptT
             & mockActionT
               [ GetStackInfo "prod-foo-base" :-> Nothing
               , ComputeChangeset
@@ -437,6 +437,7 @@ spec =
                   expectedTags
                   :-> "csid"
               , RunChangeSet "csid" :-> () ]
+            & stubExceptT
 
         it "does not provide prod-only params when not in prod" $
           runSuccess $ cli config
@@ -444,7 +445,6 @@ spec =
               [ ("base.yaml", template) ]
             & stubEnvironmentT []
             & stubCommandLineT baseTestArgs
-            & stubExceptT
             & mockActionT
               [ GetStackInfo "test-foo-base" :-> Nothing
               , ComputeChangeset
@@ -455,6 +455,7 @@ spec =
                   rootExpectedTags
                   :-> "csid"
               , RunChangeSet "csid" :-> () ]
+            & stubExceptT
 
     context "flags" $ do
       let template = "Parameters:\n"
@@ -473,7 +474,6 @@ spec =
             [ ("base.yaml", template) ]
           & stubEnvironmentT []
           & stubCommandLineT ["provision", "base", "test", "--baz", "zab"]
-          & stubExceptT
           & mockActionT
             [ GetStackInfo "test-foo-base" :-> Nothing
             , ComputeChangeset
@@ -484,6 +484,7 @@ spec =
                 rootExpectedTags
                 :-> "csid"
             , RunChangeSet "csid" :-> () ]
+          & stubExceptT
 
       it "provides a default if an optional flag isn't provided" $
         runSuccess $ cli config
@@ -491,7 +492,6 @@ spec =
             [ ("base.yaml", template) ]
           & stubEnvironmentT []
           & stubCommandLineT ["provision", "base", "test"]
-          & stubExceptT
           & mockActionT
             [ GetStackInfo "test-foo-base" :-> Nothing
             , ComputeChangeset
@@ -502,6 +502,7 @@ spec =
                 rootExpectedTags
                 :-> "csid"
             , RunChangeSet "csid" :-> () ]
+          & stubExceptT
 
       it "raises an error if a flag is provided that does not exist in the template" $
         let config' = deployment "foo" $ do
@@ -513,8 +514,8 @@ spec =
             & stubEnvironmentT []
             & stubCommandLineT
               ["provision", "base", "test", "--foo", "oof", "--bar", "rab", "--baz", "zab"]
-            & stubExceptT
             & mockActionT [GetStackInfo "test-foo-base" :-> Nothing]
+            & stubExceptT
 
       it "when updating a stack, flags are optional" $ do
         let baseTemplate = "Parameters:\n"
@@ -527,7 +528,6 @@ spec =
             [ ("base.yaml", baseTemplate) ]
           & stubEnvironmentT []
           & stubCommandLineT ["provision", "base", "test"]
-          & stubExceptT
           & mockActionT
             [ GetStackInfo "test-foo-base" :-> (Just $ Stack ["Env", "baz"])
             , ComputeChangeset
@@ -538,6 +538,7 @@ spec =
                 rootExpectedTags
                 :-> "csid"
             , RunChangeSet "csid" :-> () ]
+          & stubExceptT
 
     context "global stacks" $ do
       it "global stacks can be deployed into the global environment" $ do
@@ -550,7 +551,6 @@ spec =
             [ ("repo.yaml", rootTemplate) ]
           & stubEnvironmentT []
           & stubCommandLineT ["provision", "repo", "global"]
-          & stubExceptT
           & mockActionT
             [ GetStackInfo "global-foo-repo" :-> Nothing
             , ComputeChangeset
@@ -561,6 +561,7 @@ spec =
                 [("cj:application", "foo"), ("cj:environment", "global")]
                 :-> "csid"
             , RunChangeSet "csid" :-> () ]
+          & stubExceptT
 
       it "global stack may not be deployed into namespaces other than global" $ do
         let config' = deployment "foo" $ do
@@ -572,8 +573,8 @@ spec =
             [ ("repo.yaml", rootTemplate) ]
           & stubEnvironmentT []
           & stubCommandLineT ["provision", "repo", "test"]
-          & stubExceptT
           & mockActionT []
+          & stubExceptT
 
 
       it "other stacks can not be deployed into the global namespace" $ do
@@ -585,8 +586,8 @@ spec =
             [("base.yaml", rootTemplate)]
           & stubEnvironmentT []
           & stubCommandLineT ["provision", "base", "global"]
-          & stubExceptT
           & mockActionT []
+          & stubExceptT
 
       it "other stacks treat global stacks as dependencies" $ do
         let config' = deployment "foo" $ do
@@ -598,7 +599,6 @@ spec =
             [ ("base.yaml", rootTemplate) ]
           & stubEnvironmentT []
           & stubCommandLineT ["provision", "base", "test"]
-          & stubExceptT
           & mockActionT
             [ GetStackInfo "test-foo-base" :-> Nothing
             , GetStackOutputs "global-foo-repo" :-> Just []
@@ -611,6 +611,7 @@ spec =
                 rootExpectedTags
                 :-> "csid"
             , RunChangeSet "csid" :-> () ]
+          & stubExceptT
 
     context "hooks" $
       context "onCreate" $ do
@@ -624,7 +625,6 @@ spec =
                   [ ("base.yaml", rootTemplate) ]
                 & stubEnvironmentT []
                 & stubCommandLineT ["provision", "base", "test"]
-                & stubExceptT
                 & mockActionT
                   [ GetStackInfo "test-foo-base" :-> Nothing
                   , LaunchMissiles :-> ()
@@ -636,6 +636,7 @@ spec =
                       rootExpectedTags
                       :-> "csid"
                   , RunChangeSet "csid" :-> () ]
+                & stubExceptT
 
         it "onCreate actions can set parameters" $ do
           let config' = deployment "foo" $
@@ -652,7 +653,6 @@ spec =
                   [ ("base.yaml", template') ]
                 & stubEnvironmentT []
                 & stubCommandLineT ["provision", "base", "test"]
-                & stubExceptT
                 & mockActionT
                   [ GetStackInfo "test-foo-base" :-> Nothing
                   , ComputeChangeset
@@ -663,6 +663,7 @@ spec =
                       rootExpectedTags
                       :-> "csid"
                   , RunChangeSet "csid" :-> () ]
+                & stubExceptT
 
         it "onCreate actions can override parameters" $ do
           let config' = deployment "foo" $
@@ -680,7 +681,6 @@ spec =
                   [ ("base.yaml", template') ]
                 & stubEnvironmentT []
                 & stubCommandLineT ["provision", "base", "test"]
-                & stubExceptT
                 & mockActionT
                   [ GetStackInfo "test-foo-base" :-> Nothing
                   , ComputeChangeset
@@ -691,3 +691,4 @@ spec =
                       rootExpectedTags
                       :-> "csid"
                   , RunChangeSet "csid" :-> () ]
+                & stubExceptT
