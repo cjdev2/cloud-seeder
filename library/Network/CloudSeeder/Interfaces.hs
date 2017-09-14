@@ -70,7 +70,7 @@ import qualified Data.Map as M
 import qualified Data.Set as S
 import qualified Data.Text as T
 import qualified Data.Text.IO as T
-import qualified Network.AWS.CloudFormation as AWS
+import qualified Network.AWS.CloudFormation as CF
 import qualified Network.AWS.Data.Body as AWS
 import qualified Network.AWS.KMS as KMS
 import qualified Network.AWS.S3 as S3
@@ -207,59 +207,59 @@ computeChangeset' (StackName stackName) provisionType templateBody params tags =
 
     env <- ask
     runResourceT . runAWST env $ do
-      let request = AWS.createChangeSet stackName changeSetName
-            & AWS.ccsParameters .~ map awsParam (M.toList params)
-            & AWS.ccsTemplateBody ?~ templateBody
-            & AWS.ccsCapabilities .~ [AWS.CapabilityIAM]
-            & AWS.ccsTags .~ map awsTag (M.toList tags)
-            & AWS.ccsChangeSetType ?~ provisionTypeToChangeSetType provisionType
+      let request = CF.createChangeSet stackName changeSetName
+            & CF.ccsParameters .~ map awsParam (M.toList params)
+            & CF.ccsTemplateBody ?~ templateBody
+            & CF.ccsCapabilities .~ [CF.CapabilityIAM]
+            & CF.ccsTags .~ map awsTag (M.toList tags)
+            & CF.ccsChangeSetType ?~ provisionTypeToChangeSetType provisionType
       response <- send request
       maybe (throwing _CloudErrorInternal "createChangeSet did not return a valid response.")
-            return (response ^. AWS.ccsrsId)
+            return (response ^. CF.ccsrsId)
   where
-    awsParam (key, Value val) = AWS.parameter
-      & AWS.pParameterKey ?~ key
-      & AWS.pParameterValue ?~ val
-    awsParam (key, UsePreviousValue) = AWS.parameter
-      & AWS.pParameterKey ?~ key
-      & AWS.pUsePreviousValue ?~ True
-    awsTag (key, val) = AWS.tag
-      & AWS.tagKey ?~ key
-      & AWS.tagValue ?~ val
-    provisionTypeToChangeSetType CreateStack = AWS.Create
-    provisionTypeToChangeSetType (UpdateStack _) = AWS.Update
+    awsParam (key, Value val) = CF.parameter
+      & CF.pParameterKey ?~ key
+      & CF.pParameterValue ?~ val
+    awsParam (key, UsePreviousValue) = CF.parameter
+      & CF.pParameterKey ?~ key
+      & CF.pUsePreviousValue ?~ True
+    awsTag (key, val) = CF.tag
+      & CF.tagKey ?~ key
+      & CF.tagValue ?~ val
+    provisionTypeToChangeSetType CreateStack = CF.Create
+    provisionTypeToChangeSetType (UpdateStack _) = CF.Update
 
 getStackInfo' :: MonadCloudIO r e m => StackName -> m (Maybe Stack)
 getStackInfo' (StackName stackName) = do
   env <- ask
-  let request = AWS.describeStacks & AWS.dStackName ?~ stackName
+  let request = CF.describeStacks & CF.dStackName ?~ stackName
   runResourceT . runAWST env $ do
     response <- IO.trying_ (_StackDoesNotExistError (StackName stackName)) $ send request
-    case response ^? _Just.AWS.dsrsStacks of
+    case response ^? _Just.CF.dsrsStacks of
       Nothing -> return Nothing
       Just [s] -> do
-        let awsParams = s ^. AWS.sParameters
+        let awsParams = s ^. CF.sParameters
         params <- S.fromList <$> mapM awsParameterKey awsParams
         let stack = Stack params
         return $ Just stack
       Just _ -> throwing _CloudErrorInternal "describeStacks returned more than one stack"
   where
-    awsParameterKey x = case x ^. AWS.pParameterKey of
+    awsParameterKey x = case x ^. CF.pParameterKey of
       (Just k) -> return k
       Nothing -> throwing _CloudErrorInternal "stack parameter key was missing"
 
 getStackOutputs' :: MonadCloudIO r e m => StackName -> m (Maybe (M.Map T.Text T.Text))
 getStackOutputs' (StackName stackName) = do
     env <- ask
-    let request = AWS.describeStacks & AWS.dStackName ?~ stackName
+    let request = CF.describeStacks & CF.dStackName ?~ stackName
     runResourceT . runAWST env $ do
       response <- IO.trying_ (_StackDoesNotExistError (StackName stackName)) $ send request
-      case response ^? _Just.AWS.dsrsStacks of
+      case response ^? _Just.CF.dsrsStacks of
         Nothing -> return Nothing
-        Just [stack] -> Just . M.fromList <$> mapM outputToTuple (stack ^. AWS.sOutputs)
+        Just [stack] -> Just . M.fromList <$> mapM outputToTuple (stack ^. CF.sOutputs)
         Just _ -> throwing _CloudErrorInternal "describeStacks returned more than one stack"
   where
-    outputToTuple x = case (x ^. AWS.oOutputKey, x ^. AWS.oOutputValue) of
+    outputToTuple x = case (x ^. CF.oOutputKey, x ^. CF.oOutputValue) of
       (Just k, Just v) -> return (k, v)
       (Nothing, _) -> throwing _CloudErrorInternal "stack output key was missing"
       (_, Nothing) -> throwing _CloudErrorInternal "stack output value was missing"
@@ -269,25 +269,25 @@ runChangeSet' csId = do
     env <- ask
     waitUntilChangeSetReady env
     runResourceT . runAWST env $
-      void $ send (AWS.executeChangeSet csId)
+      void $ send (CF.executeChangeSet csId)
   where
     waitUntilChangeSetReady env = do
       liftBase $ threadDelay 1000000
       cs <- runResourceT . runAWST env $
-        send (AWS.describeChangeSet csId)
-      execStatus <- case cs ^. AWS.drsExecutionStatus of
+        send (CF.describeChangeSet csId)
+      execStatus <- case cs ^. CF.drsExecutionStatus of
         Just x -> return x
         Nothing -> throwing _CloudErrorInternal "change set lacks execution status"
-      case cs ^. AWS.drsStatus of
-        AWS.CSSFailed -> throwing _CloudErrorUser "change set creation failed--there were probably no changes"
+      case cs ^. CF.drsStatus of
+        CF.CSSFailed -> throwing _CloudErrorUser "change set creation failed--there were probably no changes"
         _ -> return ()
       case execStatus of
-        AWS.Available -> return ()
-        AWS.ExecuteComplete -> throwing _CloudErrorInternal "change set execution already complete"
-        AWS.ExecuteFailed -> throwing _CloudErrorInternal "change set execution failed"
-        AWS.ExecuteInProgress -> throwing _CloudErrorInternal "change set execution in progress"
-        AWS.Obsolete -> throwing _CloudErrorInternal "change set is obsolete"
-        AWS.Unavailable -> void $ waitUntilChangeSetReady env
+        CF.Available -> return ()
+        CF.ExecuteComplete -> throwing _CloudErrorInternal "change set execution already complete"
+        CF.ExecuteFailed -> throwing _CloudErrorInternal "change set execution failed"
+        CF.ExecuteInProgress -> throwing _CloudErrorInternal "change set execution in progress"
+        CF.Obsolete -> throwing _CloudErrorInternal "change set is obsolete"
+        CF.Unavailable -> void $ waitUntilChangeSetReady env
 
 generateSecret' :: MonadCloudIO r e m => Int -> m T.Text
 generateSecret' len = do
