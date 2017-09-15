@@ -21,7 +21,12 @@ extra-source-files:
 - README.md
 - stack.yaml
 
-ghc-options: -Wall -Wredundant-constraints
+ghc-options: -Wall
+when:
+  # see GHC Trac ticket #14237
+- condition: impl(ghc < 8.2) || impl(ghc >= 8.3)
+  ghc-options: -Wredundant-constraints
+
 default-extensions:
 - ApplicativeDo
 - ConstraintKinds
