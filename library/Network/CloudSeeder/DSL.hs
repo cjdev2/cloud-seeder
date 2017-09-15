@@ -15,6 +15,7 @@ module Network.CloudSeeder.DSL
   , CreateT(..)
   , HookContext(..)
   , password
+  , secret
   , deploymentConfiguration
   , stackConfiguration
   , deployment
@@ -121,14 +122,15 @@ onCreate :: (Monad m, HasHooksCreate s [CreateT m ()])
          => CreateT m () -> StateT s m ()
 onCreate action = hooksCreate %= (++ [action])
 
--- | Generates and stores a password
-password :: MonadCloud CliError m
+-- | Generates and stores a secret
+secret :: MonadCloud CliError m
   => T.Text -- ^ path in S3 bucket to store the password
   -> Int -- ^ desired password length
+  -> CharType -- ^ type of characters the secret will consist of
   -> T.Text -- ^ output that exports the encryption key
   -> T.Text -- ^ output that exports the bucket where secrets are stored
   -> CreateT m T.Text
-password path passwordLength encryptionKeyOutput secretsStoreOutput = do
+secret path len charType encryptionKeyOutput secretsStoreOutput = do
   context <- CreateT ask
   let outputs' = context ^. outputs
       outputsMap = M.fromList . S.toAscList $ outputs'
@@ -136,4 +138,20 @@ password path passwordLength encryptionKeyOutput secretsStoreOutput = do
     return (M.lookup encryptionKeyOutput outputsMap)
   secretsStore <- maybe (throwing _CliMissingRequiredOutput secretsStoreOutput)
     return (M.lookup secretsStoreOutput outputsMap)
-  CreateT $ generateEncryptUploadSecret passwordLength encryptionKeyId secretsStore path
+  CreateT $ generateEncryptUploadSecret len charType encryptionKeyId secretsStore path
+
+-- | Generates and stores a password -- an opinionated version of 'secret'.
+-- Assumes the existence, in this stack's dependencies, of an output called
+-- "EncryptionKey" that exports a KMS encryption key, as well as an output called
+-- "SecretsStore" that exports the path to an S3 bucket where secrets are stored.
+password :: MonadCloud CliError m
+  => T.Text -- ^ path in S3 bucket to store the password -- will be appended to the deployment config name and the stack config name, e.g. "configName/stackName/path"
+  -> Int -- ^ desired password length
+  -> CharType -- ^ type of characters the password will consist of
+  -> CreateT m T.Text
+password path len charType = do
+  context <- CreateT ask
+  let configName = context ^. deploymentConfiguration.name
+      stackName = context ^. stackConfiguration.name
+      fullPath = configName <> "/" <> stackName <> "/" <> path
+  secret fullPath len charType "EncryptionKey" "SecretsStore"

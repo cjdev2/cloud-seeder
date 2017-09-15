@@ -18,6 +18,7 @@ module Network.CloudSeeder.Interfaces
   , upload'
   , generateSecret'
   , generateEncryptUploadSecret
+  , CharType(..)
   , CloudError(..)
   , HasCloudError(..)
   , AsCloudError(..)
@@ -53,10 +54,10 @@ import Control.Monad.Trans.AWS (runResourceT, runAWST, send)
 import Control.Monad.Trans.Control (MonadBaseControl)
 import Control.Monad.Writer (WriterT)
 import Crypto.Random
+import Data.Char (isAlpha, isAlphaNum, isDigit)
 import Data.Function ((&))
 import Data.Semigroup ((<>))
 import Data.String (IsString)
-import Data.Text.Conversions (Base64(..), UTF8(..), convertText)
 import Data.UUID (toText)
 import Data.UUID.V4 (nextRandom)
 import GHC.Generics (Generic)
@@ -70,6 +71,7 @@ import qualified Data.Map as M
 import qualified Data.Set as S
 import qualified Data.Text as T
 import qualified Data.Text.IO as T
+import qualified Data.Text.Conversions as T
 import qualified Network.AWS.CloudFormation as CF
 import qualified Network.AWS.Data.Body as AWS
 import qualified Network.AWS.KMS as KMS
@@ -156,6 +158,13 @@ instance (MonadFileSystem e m, Monoid w) => MonadFileSystem e (WriterT w m)
 
 --------------------------------------------------------------------------------
 -- | A class of monads that can interact with cloud deployments.
+data CharType
+  = Alpha
+  | Digit
+  | AlphaNum
+  | Base64
+  deriving (Eq, Show)
+
 data CloudError
   = CloudErrorInternal T.Text
   | CloudErrorUser T.Text
@@ -171,7 +180,7 @@ class (AsCloudError e, MonadError e m) => MonadCloud e m | m -> e where
   runChangeSet :: T.Text -> m ()
   encrypt :: T.Text -> T.Text -> m B.ByteString
   upload :: T.Text -> T.Text -> B.ByteString -> m ()
-  generateSecret :: Int -> m T.Text
+  generateSecret :: Int -> CharType -> m T.Text
 
   default computeChangeset :: (MonadTrans t, MonadCloud e m', m ~ t m') => StackName -> ProvisionType -> T.Text -> M.Map T.Text ParameterValue -> M.Map T.Text T.Text -> m T.Text
   computeChangeset a b c d e = lift $ computeChangeset a b c d e
@@ -191,8 +200,8 @@ class (AsCloudError e, MonadError e m) => MonadCloud e m | m -> e where
   default upload :: (MonadTrans t, MonadCloud e m', m ~ t m') => T.Text -> T.Text -> B.ByteString -> m ()
   upload a b c = lift $ upload a b c
 
-  default generateSecret :: (MonadTrans t, MonadCloud e m', m ~ t m') => Int -> m T.Text
-  generateSecret = lift . generateSecret
+  default generateSecret :: (MonadTrans t, MonadCloud e m', m ~ t m') => Int -> CharType -> m T.Text
+  generateSecret a b = lift $ generateSecret a b
 
 type MonadCloudIO r e m = (HasEnv r, MonadReader r m, MonadIO m, MonadBaseControl IO m, MonadCatch m, MonadThrow m, AsCloudError e, MonadError e m)
 
@@ -289,18 +298,27 @@ runChangeSet' csId = do
         CF.Obsolete -> throwing _CloudErrorInternal "change set is obsolete"
         CF.Unavailable -> void $ waitUntilChangeSetReady env
 
-generateSecret' :: MonadCloudIO r e m => Int -> m T.Text
-generateSecret' len = do
+generateSecret' :: MonadCloudIO r e m => Int -> CharType -> m T.Text
+generateSecret' len charFilter = do
+  let isXFilter = case charFilter of
+        Alpha -> isAlpha
+        Digit -> isDigit
+        AlphaNum -> isAlphaNum
+        Base64 -> const True
   g :: SystemRandom <- liftBase newGenIO
-  let (bytes, _) = either (throw NeedReseed) id (genBytes len g)
-      ascii = convertText $ Base64 bytes
-  return $ T.take len ascii
+  -- because we're filtering out characters, we need to pad the random data to
+  -- ensure we end up with a secret of the right size.
+  let pad n = n + 1 * 1000
+      (bytes, _) = either (throw NeedReseed) id (genBytes (pad len) g)
+      ascii = T.convertText $ T.Base64 bytes
+      alphanums = T.filter isXFilter ascii
+  return $ T.take len alphanums
 
 encrypt' :: MonadCloudIO r e m => T.Text -> T.Text -> m B.ByteString
 encrypt' input encryptionKeyId = do
   env <- ask
   runResourceT . runAWST env $ do
-    let (UTF8 inputBS) = convertText input :: UTF8 B.ByteString
+    let (T.UTF8 inputBS) = T.convertText input
         request = KMS.encrypt encryptionKeyId inputBS
     response <- send request
     maybe (throwing _CloudErrorInternal "encrypt did not return a valid response.")
@@ -315,9 +333,9 @@ upload' bucket path payload = do
     maybe (throwing _CloudErrorInternal "putObject did not return a valid response.")
       return $ return ()
 
-generateEncryptUploadSecret :: MonadCloud e m => Int -> T.Text -> T.Text -> T.Text -> m T.Text
-generateEncryptUploadSecret len encryptionKeyId bucket path = do
-  secret <- generateSecret len
+generateEncryptUploadSecret :: MonadCloud e m => Int -> CharType -> T.Text -> T.Text -> T.Text -> m T.Text
+generateEncryptUploadSecret len charFilter encryptionKeyId bucket path = do
+  secret <- generateSecret len charFilter
   encrypted <- encrypt secret encryptionKeyId
   upload bucket path encrypted
   return secret
