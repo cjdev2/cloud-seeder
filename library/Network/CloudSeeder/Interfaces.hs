@@ -315,11 +315,12 @@ upload' bucket path payload = do
     maybe (throwing _CloudErrorInternal "putObject did not return a valid response.")
       return $ return ()
 
-generateEncryptUploadSecret :: MonadCloud e m => Int -> T.Text -> T.Text -> T.Text -> m ()
+generateEncryptUploadSecret :: MonadCloud e m => Int -> T.Text -> T.Text -> T.Text -> m T.Text
 generateEncryptUploadSecret len encryptionKeyId bucket path = do
   secret <- generateSecret len
   encrypted <- encrypt secret encryptionKeyId
   upload bucket path encrypted
+  return secret
 
 instance MonadCloud e m => MonadCloud e (ExceptT e m)
 instance MonadCloud e m => MonadCloud e (LoggingT m)

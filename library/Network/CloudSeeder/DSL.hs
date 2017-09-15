@@ -127,7 +127,7 @@ password :: MonadCloud CliError m
   -> Int -- ^ desired password length
   -> T.Text -- ^ output that exports the encryption key
   -> T.Text -- ^ output that exports the bucket where secrets are stored
-  -> CreateT m ()
+  -> CreateT m T.Text
 password path passwordLength encryptionKeyOutput secretsStoreOutput = do
   context <- CreateT ask
   let outputs' = context ^. outputs
