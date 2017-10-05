@@ -169,7 +169,9 @@ getParameters provisionType config stackToProvision paramSources allParamSpecs d
     let fetchedParams = S.unions [envVars', flags', S.map (second Value) outputs']
     let initialParams = S.insert ("Env", Value env) (constants <> fetchedParams)
     validInitialParams <- validateParameters paramSpecs initialParams
-    postHookParams <- runCreateHooks validInitialParams outputs'
+    postHookParams <- if provisionType == CreateStack
+      then runCreateHooks validInitialParams outputs'
+      else return validInitialParams
     assertNoMissingRequiredParameters postHookParams paramSpecs
     return postHookParams
   where

@@ -692,3 +692,24 @@ spec =
                       :-> "csid"
                   , RunChangeSet "csid" :-> () ]
                 & stubExceptT
+
+        it "onCreate hooks are not executed on stack update" $ do
+          let config' = deployment "foo" $
+                stack "base" $
+                  onCreate launchMissiles
+          runSuccess $ cli config'
+            & stubFileSystemT
+              [ ("base.yaml", rootTemplate) ]
+            & stubEnvironmentT []
+            & stubCommandLineT ["provision", "base", "test"]
+            & mockActionT
+              [ GetStackInfo "test-foo-base" :-> Just (Stack ["Env"])
+              , ComputeChangeset
+                  "test-foo-base"
+                  (UpdateStack ["Env"])
+                  rootTemplate
+                  rootExpectedParams
+                  rootExpectedTags
+                  :-> "csid"
+              , RunChangeSet "csid" :-> () ]
+            & stubExceptT
