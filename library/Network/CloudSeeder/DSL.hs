@@ -14,18 +14,18 @@ module Network.CloudSeeder.DSL
   , CanSetConstant(..)
   , CreateT(..)
   , HookContext(..)
-  , password
-  , secret
-  , deploymentConfiguration
-  , stackConfiguration
   , deployment
+  , deploymentConfiguration
   , environment
   , flag
   , global
-  , tags
   , onCreate
-  , stack_
+  , password
+  , secret
   , stack
+  , stack_
+  , stackConfiguration
+  , tags
   ) where
 
 import Control.Lens ((%=), (.=), (^.))

@@ -18,10 +18,12 @@ module Network.CloudSeeder.Interfaces
   , upload'
   , generateSecret'
   , generateEncryptUploadSecret
+  , wait'
   , CharType(..)
   , CloudError(..)
   , HasCloudError(..)
   , AsCloudError(..)
+  , Waiter(..)
 
   , MonadEnvironment(..)
   , StackName(..)
@@ -50,7 +52,7 @@ import Control.Monad.Logger (LoggingT)
 import Control.Monad.Reader (MonadReader, ReaderT, ask)
 import Control.Monad.State (StateT)
 import Control.Monad.Trans (MonadTrans, lift)
-import Control.Monad.Trans.AWS (runResourceT, runAWST, send)
+import Control.Monad.Trans.AWS (runResourceT, runAWST, send, await)
 import Control.Monad.Trans.Control (MonadBaseControl)
 import Control.Monad.Writer (WriterT)
 import Crypto.Random
@@ -78,7 +80,7 @@ import qualified Network.AWS.KMS as KMS
 import qualified Network.AWS.S3 as S3
 import qualified System.Environment as IO
 
-import Network.CloudSeeder.CommandLine
+import qualified Network.CloudSeeder.CommandLine as CL
 import Network.CloudSeeder.Types
 
 newtype StackName = StackName T.Text
@@ -90,20 +92,20 @@ instance NFData StackName
 
 class Monad m => MonadCLI m where
   -- | Returns positional arguments provided to the program while ignoring flags -- separate from getOptions to avoid cyclical dependencies.
-  getArgs :: m Command
-  default getArgs :: (MonadTrans t, MonadCLI m', m ~ t m') => m Command
+  getArgs :: m CL.Command
+  default getArgs :: (MonadTrans t, MonadCLI m', m ~ t m') => m CL.Command
   getArgs = lift getArgs
 
   -- | Returns flags provided to the program while ignoring positional arguments -- separate from getArgs to avoid cyclical dependencies.
-  getOptions :: S.Set ParameterSpec -> m (M.Map T.Text ParameterValue)
-  default getOptions :: (MonadTrans t, MonadCLI m', m ~ t m') => S.Set ParameterSpec -> m (M.Map T.Text ParameterValue)
+  getOptions :: S.Set ParameterSpec -> m CL.Options
+  default getOptions :: (MonadTrans t, MonadCLI m', m ~ t m') => S.Set ParameterSpec -> m CL.Options
   getOptions = lift . getOptions
 
-getArgs' :: MonadBase IO m => m Command
-getArgs' = liftBase $ execParser parseArguments
+getArgs' :: MonadBase IO m => m CL.Command
+getArgs' = liftBase $ execParser CL.parseArguments
 
-getOptions' :: MonadBase IO m => S.Set ParameterSpec -> m (M.Map T.Text ParameterValue)
-getOptions' = liftBase . execParser . parseOptions
+getOptions' :: MonadBase IO m => S.Set ParameterSpec -> m CL.Options
+getOptions' = liftBase . execParser . CL.parseOptions
 
 instance MonadCLI m => MonadCLI (ExceptT e m)
 instance MonadCLI m => MonadCLI (LoggingT m)
@@ -115,7 +117,7 @@ instance (Monoid s, MonadCLI m) => MonadCLI (WriterT s m)
 
 getEnvArg :: MonadCLI m => m T.Text
 getEnvArg = do
-  (ProvisionStack _ env) <- getArgs
+  (CL.ProvisionStack _ env) <- getArgs
   return env
 
 whenEnv :: MonadCLI m => T.Text -> m () -> m ()
@@ -173,6 +175,14 @@ data CloudError
 makeClassy ''CloudError
 makeClassyPrisms ''CloudError
 
+data Waiter
+  = StackCreateComplete
+  | StackUpdateComplete
+  | StackExists
+  | StackDeleteComplete
+  | ChangeSetCreateComplete
+  deriving (Eq, Show)
+
 class (AsCloudError e, MonadError e m) => MonadCloud e m | m -> e where
   computeChangeset :: StackName -> ProvisionType -> T.Text -> M.Map T.Text ParameterValue -> M.Map T.Text T.Text -> m T.Text
   getStackInfo :: StackName -> m (Maybe Stack)
@@ -181,6 +191,7 @@ class (AsCloudError e, MonadError e m) => MonadCloud e m | m -> e where
   encrypt :: T.Text -> T.Text -> m B.ByteString
   upload :: T.Text -> T.Text -> B.ByteString -> m ()
   generateSecret :: Int -> CharType -> m T.Text
+  wait :: Waiter -> T.Text -> m ()
 
   default computeChangeset :: (MonadTrans t, MonadCloud e m', m ~ t m') => StackName -> ProvisionType -> T.Text -> M.Map T.Text ParameterValue -> M.Map T.Text T.Text -> m T.Text
   computeChangeset a b c d e = lift $ computeChangeset a b c d e
@@ -202,6 +213,9 @@ class (AsCloudError e, MonadError e m) => MonadCloud e m | m -> e where
 
   default generateSecret :: (MonadTrans t, MonadCloud e m', m ~ t m') => Int -> CharType -> m T.Text
   generateSecret a b = lift $ generateSecret a b
+
+  default wait :: (MonadTrans t, MonadCloud e m', m ~ t m') => Waiter -> T.Text -> m ()
+  wait a b = lift $ wait a b
 
 type MonadCloudIO r e m = (HasEnv r, MonadReader r m, MonadIO m, MonadBaseControl IO m, MonadCatch m, MonadThrow m, AsCloudError e, MonadError e m)
 
@@ -281,7 +295,7 @@ runChangeSet' csId = do
       void $ send (CF.executeChangeSet csId)
   where
     waitUntilChangeSetReady env = do
-      liftBase $ threadDelay 1000000
+      liftBase $ threadDelay 1000000 -- TODO: replace with Waiter
       cs <- runResourceT . runAWST env $
         send (CF.describeChangeSet csId)
       execStatus <- case cs ^. CF.drsExecutionStatus of
@@ -297,6 +311,19 @@ runChangeSet' csId = do
         CF.ExecuteInProgress -> throwing _CloudErrorInternal "change set execution in progress"
         CF.Obsolete -> throwing _CloudErrorInternal "change set is obsolete"
         CF.Unavailable -> void $ waitUntilChangeSetReady env
+
+wait' :: MonadCloudIO r e m => Waiter -> T.Text -> m ()
+wait' waiter stackName = do
+  env <- ask
+  void $ runResourceT . runAWST env $
+    await waiter' (CF.describeStacks & CF.dStackName ?~ stackName)
+  where
+    waiter' = case waiter of
+      StackCreateComplete -> CF.stackCreateComplete
+      StackUpdateComplete -> CF.stackUpdateComplete
+      StackExists -> CF.stackUpdateComplete
+      StackDeleteComplete -> CF.stackUpdateComplete
+      ChangeSetCreateComplete -> CF.stackUpdateComplete
 
 generateSecret' :: MonadCloudIO r e m => Int -> CharType -> m T.Text
 generateSecret' len charFilter = do
@@ -339,6 +366,7 @@ generateEncryptUploadSecret len charFilter encryptionKeyId bucket path = do
   encrypted <- encrypt secret encryptionKeyId
   upload bucket path encrypted
   return secret
+
 
 instance MonadCloud e m => MonadCloud e (ExceptT e m)
 instance MonadCloud e m => MonadCloud e (LoggingT m)

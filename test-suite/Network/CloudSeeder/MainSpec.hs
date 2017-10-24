@@ -713,3 +713,26 @@ spec =
                   :-> "csid"
               , RunChangeSet "csid" :-> () ]
             & stubExceptT
+
+    context "wait" $ do
+      let config = deployment "foo" $
+            stack_ "base"
+
+      it "waits for the requested command to finish" $
+        runSuccess $ cli config
+          & stubFileSystemT
+            [ ("base.yaml", rootTemplate) ]
+          & stubEnvironmentT []
+          & stubCommandLineT ["provision", "base", "test", "--wait"]
+          & mockActionT
+            [ GetStackInfo "test-foo-base" :-> Nothing
+            , ComputeChangeset
+                "test-foo-base"
+                CreateStack
+                rootTemplate
+                rootExpectedParams
+                rootExpectedTags
+                :-> "csid"
+            , RunChangeSet "csid" :-> ()
+            , Wait StackCreateComplete "base" :-> () ]
+          & stubExceptT

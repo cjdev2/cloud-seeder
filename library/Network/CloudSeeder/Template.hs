@@ -15,7 +15,6 @@ import Network.CloudSeeder.Types
 newtype Template = Template
   { _templateParameterSpecs :: ParameterSpecs
   } deriving (Eq, Show)
-
 makeFields ''Template
 
 instance FromJSON Template where

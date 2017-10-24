@@ -37,7 +37,7 @@ import qualified Data.Text.IO as T
 import qualified Data.Map as M
 import qualified Data.Set as S
 
-import Network.CloudSeeder.CommandLine
+import qualified Network.CloudSeeder.CommandLine as CL
 import Network.CloudSeeder.DSL
 import Network.CloudSeeder.Error
 import Network.CloudSeeder.Interfaces
@@ -72,6 +72,7 @@ instance MonadCloud CliError AppM where
   encrypt = encrypt'
   upload = upload'
   generateSecret = generateSecret'
+  wait = wait'
 
 runAppM :: AppM a -> IO a
 runAppM (AppM x) = do
@@ -87,7 +88,7 @@ cli
   => m (DeploymentConfiguration m) -> m ()
 cli mConfig = do
   config <- mConfig
-  (ProvisionStack nameToProvision env) <- getArgs
+  (CL.ProvisionStack nameToProvision env) <- getArgs
 
   let dependencies = takeWhile (\stak -> (stak ^. name) /= nameToProvision) (config ^.. stacks.each)
       appName = config ^. name
@@ -108,11 +109,14 @@ cli mConfig = do
   newStackOrPreviousValues <- getStackProvisionType $ mkFullStackName env appName nameToProvision
   allTags <- getTags config stackToProvision env appName
 
-  allParams <- getParameters newStackOrPreviousValues config stackToProvision paramSources paramSpecs dependencies env appName
+  (waitOption, allParams) <- getParameters newStackOrPreviousValues config stackToProvision paramSources paramSpecs dependencies env appName
 
   let fullStackName = mkFullStackName env appName nameToProvision
   csId <- computeChangeset fullStackName newStackOrPreviousValues templateBody allParams allTags
   runChangeSet csId
+
+  when waitOption $
+    wait StackCreateComplete nameToProvision
 
 getStackProvisionType :: (MonadCloud e m) => StackName -> m ProvisionType
 getStackProvisionType stackName = do
@@ -159,12 +163,12 @@ getParameters
   -> [StackConfiguration m] -- ^ stack dependencies
   -> T.Text -- ^ name of environment being deployed to
   -> T.Text -- ^ name of application being deployed
-  -> m (M.Map T.Text ParameterValue)
+  -> m (Bool, M.Map T.Text ParameterValue)
 getParameters provisionType config stackToProvision paramSources allParamSpecs dependencies env appName = do
     let paramSpecs = setRequiredSpecsWithPreviousValuesToOptional allParamSpecs
         constants  = paramSources ^..* folded.aside _Constant.to (second Value)
+    (waitOption, flags' :: S.Set (T.Text, ParameterValue)) <- options paramSpecs
     outputs' <- outputs
-    flags' <- flags paramSpecs
     envVars' <- envVars
     let fetchedParams = S.unions [envVars', flags', S.map (second Value) outputs']
     let initialParams = S.insert ("Env", Value env) (constants <> fetchedParams)
@@ -173,7 +177,7 @@ getParameters provisionType config stackToProvision paramSources allParamSpecs d
       then runCreateHooks validInitialParams outputs'
       else return validInitialParams
     assertNoMissingRequiredParameters postHookParams paramSpecs
-    return postHookParams
+    pure (waitOption, postHookParams)
   where
     setRequiredSpecsWithPreviousValuesToOptional :: S.Set ParameterSpec -> S.Set ParameterSpec
     setRequiredSpecsWithPreviousValuesToOptional pSpecs = do
@@ -193,8 +197,8 @@ getParameters provisionType config stackToProvision paramSources allParamSpecs d
       let envVarsOrFailure = runErrors $ traverse (extractResult (,)) maybeEnvValues
       either (throwing _CliMissingEnvVars . sort) (return . S.fromList . fmap (second Value)) envVarsOrFailure
 
-    flags :: S.Set ParameterSpec -> m (S.Set (T.Text, ParameterValue))
-    flags paramSpecs = do
+    options :: S.Set ParameterSpec -> m (Bool, S.Set (T.Text, ParameterValue))
+    options paramSpecs = do
       let paramFlags = paramSources ^..* folded.filtered (has (_2._Flag))._1
           flaggedParamSpecs = paramSpecs ^..* folded.filtered (anyOf parameterKey (`elem` paramFlags))
           paramSpecNames = paramSpecs ^..* folded.parameterKey
@@ -202,7 +206,10 @@ getParameters provisionType config stackToProvision paramSources allParamSpecs d
 
       unless (S.null paramFlagsNotInTemplate) $
         throwing _CliExtraParameterFlags paramFlagsNotInTemplate
-      S.fromList . M.toList <$> getOptions flaggedParamSpecs
+      options' <- getOptions flaggedParamSpecs
+      let waitOption = options' ^. CL.wait
+          params = options' ^. CL.parameters
+      pure (waitOption, S.fromList $ M.toList params)
 
     outputs :: m (S.Set (T.Text, T.Text))
     outputs = do

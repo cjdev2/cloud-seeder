@@ -29,14 +29,19 @@ positional arguments and accept /any/ options (and ignore them). Once we’ve us
 the information in the positional arguments to evaluate the DSL, we parse the
 arguments a second time, enhanced with more information.
 -}
+{-# LANGUAGE TemplateHaskell #-}
+
 module Network.CloudSeeder.CommandLine
     ( Command(..)
+    , Options(..)
+    , HasParameters(..)
+    , HasWait(..)
     , ParameterSpec(..)
     , parseArguments
     , parseOptions
     ) where
 
-import Control.Lens ((^.))
+import Control.Lens ((^.), makeFields)
 import Data.Monoid ((<>))
 import Options.Applicative
 
@@ -51,6 +56,12 @@ data Command
   = ProvisionStack T.Text T.Text
   deriving (Eq, Show)
 
+data Options = Options
+  { _optionsParameters :: M.Map T.Text ParameterValue
+  , _optionsWait :: Bool
+  } deriving (Eq, Show)
+makeFields ''Options
+
 -- | A parser that corresponds to the first “parsing phase” for the @provision@
 -- subcommand, as described in the module documentation for
 -- 'Network.CloudSeeder.CommandLine'.
@@ -60,7 +71,7 @@ parseArguments = program PhaseArguments
 -- | A parser that corresponds to the second “parsing phase” for the @provision@
 -- subcommand, as described in the module documentation for
 -- 'Network.CloudSeeder.CommandLine'.
-parseOptions :: S.Set ParameterSpec -> ParserInfo (M.Map T.Text ParameterValue)
+parseOptions :: S.Set ParameterSpec -> ParserInfo Options
 parseOptions = program . PhaseOptions
 
 program :: ParsingPhase r -> ParserInfo r
@@ -72,7 +83,7 @@ program phase = info (helper <*> provision phase)
 -- the 'provision' parser.
 data ParsingPhase r where
   PhaseArguments :: ParsingPhase Command
-  PhaseOptions :: S.Set ParameterSpec -> ParsingPhase (M.Map T.Text ParameterValue)
+  PhaseOptions :: S.Set ParameterSpec -> ParsingPhase Options
 
 -- | Parser for the 'provision' subcommand, which parses a 'ProvisionStack'
 -- value if it succeeds.
@@ -107,14 +118,17 @@ provision phase = subparser . command "provision" $ info parser infoMod
         helper' p = (abortOption ShowHelpText opts <*> empty) <|> p
           where opts = long "help" <> short 'h' <> internal
 
-    optionsParser :: S.Set ParameterSpec -> Parser (M.Map T.Text ParameterValue)
-    optionsParser specs = M.fromList <$> traverse parameter (S.toList specs)
+    optionsParser :: S.Set ParameterSpec -> Parser Options
+    optionsParser specs = Options <$> params <*> wait
       where
+        params = M.fromList <$> traverse parameter (S.toList specs)
         parameter spec = do
           let key = spec ^. parameterKey
               keyStr = T.unpack key
           val <- parameterValueOption (long keyStr <> metavar keyStr <> defaultMod spec)
           pure (key, val)
+        wait :: Parser Bool
+        wait = switch (long "wait" <> short 'w')
 
         defaultMod :: ParameterSpec -> Mod OptionFields ParameterValue
         defaultMod (Optional _ x) = value x

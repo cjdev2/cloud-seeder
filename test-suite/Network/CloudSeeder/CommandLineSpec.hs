@@ -40,21 +40,21 @@ spec = do
       it "parses an optional parameter" $ do
         let flags = [Optional "foo" (Value "defVal")]
             input = command ++ ["--foo", "val"]
-            expected = [("foo", Value "val")]
+            expected = Options [("foo", Value "val")] False
         parsed <- handleParseResult $ runParser (parseOptions flags) input
         parsed `shouldBe` expected
 
       it "returns a default value if an optional parameter is not present" $ do
         let flags = [Optional "bar" (Value "defVal")]
             input = command
-            expected = [("bar", Value "defVal")]
+            expected = Options [("bar", Value "defVal")] False
             parsed = getParseResult $ runParser (parseOptions flags) input
         parsed `shouldBe` Just expected
 
       it "parses a required parameter" $ do
         let flags = [Required "flag"]
             input = command ++ ["--flag", "val"]
-            expected = [("flag", Value "val")]
+            expected = Options [("flag", Value "val")] False
         parsed <- handleParseResult $ runParser (parseOptions flags) input
         parsed `shouldBe` expected
 

@@ -1,6 +1,5 @@
 module Network.CloudSeeder
   ( deployment
-  , module Network.CloudSeeder.CommandLine
   , module Network.CloudSeeder.DSL
   , module Network.CloudSeeder.Interfaces
   , module Control.Monad
@@ -12,7 +11,6 @@ import Data.Text (Text)
 import Control.Monad
 import Control.Monad.State (StateT)
 
-import Network.CloudSeeder.CommandLine
 import Network.CloudSeeder.DSL hiding (deployment)
 import Network.CloudSeeder.Interfaces
 import Network.CloudSeeder.Main
