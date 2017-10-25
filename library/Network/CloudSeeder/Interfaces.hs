@@ -37,7 +37,6 @@ module Network.CloudSeeder.Interfaces
 
 import Prelude hiding (readFile)
 
-import Control.Concurrent (threadDelay)
 import Control.DeepSeq (NFData)
 import Control.Exception (throw)
 import Control.Lens (Traversal', (.~), (^.), (^?), (?~), _Just, only, to)
@@ -180,14 +179,13 @@ data Waiter
   | StackUpdateComplete
   | StackExists
   | StackDeleteComplete
-  | ChangeSetCreateComplete
   deriving (Eq, Show)
 
 class (AsCloudError e, MonadError e m) => MonadCloud e m | m -> e where
   computeChangeset :: StackName -> ProvisionType -> T.Text -> M.Map T.Text ParameterValue -> M.Map T.Text T.Text -> m T.Text
   getStackInfo :: StackName -> m (Maybe Stack)
   getStackOutputs :: StackName -> m (Maybe (M.Map T.Text T.Text))
-  runChangeSet :: T.Text -> m ()
+  runChangeSet :: T.Text -> m Int
   encrypt :: T.Text -> T.Text -> m B.ByteString
   upload :: T.Text -> T.Text -> B.ByteString -> m ()
   generateSecret :: Int -> CharType -> m T.Text
@@ -202,7 +200,7 @@ class (AsCloudError e, MonadError e m) => MonadCloud e m | m -> e where
   default getStackOutputs :: (MonadTrans t, MonadCloud e m', m ~ t m') => StackName -> m (Maybe (M.Map T.Text T.Text))
   getStackOutputs = lift . getStackOutputs
 
-  default runChangeSet :: (MonadTrans t, MonadCloud e m', m ~ t m') => T.Text -> m ()
+  default runChangeSet :: (MonadTrans t, MonadCloud e m', m ~ t m') => T.Text -> m Int
   runChangeSet = lift . runChangeSet
 
   default encrypt :: (MonadTrans t, MonadCloud e m', m ~ t m') => T.Text -> T.Text -> m B.ByteString
@@ -287,30 +285,18 @@ getStackOutputs' (StackName stackName) = do
       (Nothing, _) -> throwing _CloudErrorInternal "stack output key was missing"
       (_, Nothing) -> throwing _CloudErrorInternal "stack output value was missing"
 
-runChangeSet' :: MonadCloudIO r e m => T.Text -> m ()
+runChangeSet' :: MonadCloudIO r e m => T.Text -> m Int
 runChangeSet' csId = do
     env <- ask
-    waitUntilChangeSetReady env
-    runResourceT . runAWST env $
-      void $ send (CF.executeChangeSet csId)
-  where
-    waitUntilChangeSetReady env = do
-      liftBase $ threadDelay 1000000 -- TODO: replace with Waiter
-      cs <- runResourceT . runAWST env $
-        send (CF.describeChangeSet csId)
-      execStatus <- case cs ^. CF.drsExecutionStatus of
-        Just x -> return x
-        Nothing -> throwing _CloudErrorInternal "change set lacks execution status"
-      case cs ^. CF.drsStatus of
-        CF.CSSFailed -> throwing _CloudErrorUser "change set creation failed--there were probably no changes"
-        _ -> return ()
-      case execStatus of
-        CF.Available -> return ()
-        CF.ExecuteComplete -> throwing _CloudErrorInternal "change set execution already complete"
-        CF.ExecuteFailed -> throwing _CloudErrorInternal "change set execution failed"
-        CF.ExecuteInProgress -> throwing _CloudErrorInternal "change set execution in progress"
-        CF.Obsolete -> throwing _CloudErrorInternal "change set is obsolete"
-        CF.Unavailable -> void $ waitUntilChangeSetReady env
+    r <- runResourceT . runAWST env $ do
+      void $ await CF.changeSetCreateComplete (CF.describeChangeSet csId)
+      send (CF.executeChangeSet csId)
+    let statusCode = r ^. CF.ecsrsResponseStatus
+    case statusCode of
+      200 -> pure statusCode
+      _ -> throwing _CloudErrorInternal ("executeChangeSet returned invalid response " <> T.pack (show statusCode) <> " for changeset id " <> csId <> ". This should never happen--please submit an issue to the cloud-seeder repo.")
+
+
 
 wait' :: MonadCloudIO r e m => Waiter -> T.Text -> m ()
 wait' waiter stackName = do
@@ -323,7 +309,6 @@ wait' waiter stackName = do
       StackUpdateComplete -> CF.stackUpdateComplete
       StackExists -> CF.stackUpdateComplete
       StackDeleteComplete -> CF.stackUpdateComplete
-      ChangeSetCreateComplete -> CF.stackUpdateComplete
 
 generateSecret' :: MonadCloudIO r e m => Int -> CharType -> m T.Text
 generateSecret' len charFilter = do

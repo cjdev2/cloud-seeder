@@ -113,7 +113,7 @@ cli mConfig = do
 
   let fullStackName = mkFullStackName env appName nameToProvision
   csId <- computeChangeset fullStackName newStackOrPreviousValues templateBody allParams allTags
-  runChangeSet csId
+  _ <- runChangeSet csId
 
   when waitOption $
     wait StackCreateComplete nameToProvision

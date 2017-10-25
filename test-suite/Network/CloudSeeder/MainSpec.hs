@@ -128,7 +128,7 @@ spec =
           & mockActionT
             [ GetStackInfo "test-foo-base" :-> Nothing
             , ComputeChangeset "test-foo-base" CreateStack rootTemplate rootExpectedParams rootExpectedTags :-> "csid"
-            , RunChangeSet "csid" :-> () ]
+            , RunChangeSet "csid" :-> 200 ]
           & stubExceptT
 
       it "passes only the outputs from previous stacks that are listed in this template's Parameters" $ do
@@ -159,7 +159,7 @@ spec =
                 (rootExpectedParams <> [("bar", Value "qux"), ("foo", Value "baz")])
                 rootExpectedTags
                 :-> "csid"
-            , RunChangeSet "csid" :-> () ]
+            , RunChangeSet "csid" :-> 200 ]
           & stubExceptT
 
         let frontendtemplate = rootTemplate
@@ -182,7 +182,7 @@ spec =
                 (rootExpectedParams <> [("foo", Value "baz")])
                 rootExpectedTags
                 :-> "csid"
-            , RunChangeSet "csid" :-> () ]
+            , RunChangeSet "csid" :-> 200 ]
           & stubExceptT
 
       it "fails if a dependency stack does not exist" $ do
@@ -242,7 +242,7 @@ spec =
           & mockActionT
             [ GetStackInfo "test-foo-base" :-> Nothing
             , ComputeChangeset "test-foo-base" CreateStack template expectedParams rootExpectedTags :-> "csid"
-            , RunChangeSet "csid" :-> () ]
+            , RunChangeSet "csid" :-> 200 ]
           & stubExceptT
 
       it "fails when a global environment variable is missing" $ do
@@ -298,7 +298,7 @@ spec =
                 expectedBaseParams
                 rootExpectedTags
                 :-> "csid"
-            , RunChangeSet "csid" :-> () ]
+            , RunChangeSet "csid" :-> 200 ]
           & stubExceptT
 
         let serverEnv = env <> [ ("Server1", "b"), ("Server2", "c") ]
@@ -323,7 +323,7 @@ spec =
                 expectedServerParams
                 rootExpectedTags
                 :-> "csid"
-            , RunChangeSet "csid" :-> () ]
+            , RunChangeSet "csid" :-> 200 ]
           & stubExceptT
 
     context "the configuration has global tags" $ do
@@ -351,7 +351,7 @@ spec =
                 rootExpectedParams
                 expectedTags
                 :-> "csid"
-            , RunChangeSet "csid" :-> () ]
+            , RunChangeSet "csid" :-> 200 ]
           & stubExceptT
 
     context "the configuration has global and local tags" $ do
@@ -384,7 +384,7 @@ spec =
                 rootExpectedParams
                 expectedGlobalTags
                 :-> "csid"
-            , RunChangeSet "csid" :-> () ]
+            , RunChangeSet "csid" :-> 200 ]
           & stubExceptT
 
         runSuccess $ cli config
@@ -402,7 +402,7 @@ spec =
                 rootExpectedParams
                 expectedServerTags
                 :-> "csid"
-            , RunChangeSet "csid" :-> () ]
+            , RunChangeSet "csid" :-> 200 ]
           & stubExceptT
 
     context "monadic logic" $
@@ -436,7 +436,7 @@ spec =
                   [("Env", Value "prod"), ("baz", Value "qux"), ("foo", Value "bar")]
                   expectedTags
                   :-> "csid"
-              , RunChangeSet "csid" :-> () ]
+              , RunChangeSet "csid" :-> 200 ]
             & stubExceptT
 
         it "does not provide prod-only params when not in prod" $
@@ -454,7 +454,7 @@ spec =
                   ([("foo", Value "bar")] <> rootExpectedParams)
                   rootExpectedTags
                   :-> "csid"
-              , RunChangeSet "csid" :-> () ]
+              , RunChangeSet "csid" :-> 200 ]
             & stubExceptT
 
     context "flags" $ do
@@ -483,7 +483,7 @@ spec =
                 (rootExpectedParams <> [("baz", Value "zab")])
                 rootExpectedTags
                 :-> "csid"
-            , RunChangeSet "csid" :-> () ]
+            , RunChangeSet "csid" :-> 200 ]
           & stubExceptT
 
       it "provides a default if an optional flag isn't provided" $
@@ -501,7 +501,7 @@ spec =
                 (rootExpectedParams <> [("baz", Value "prod")])
                 rootExpectedTags
                 :-> "csid"
-            , RunChangeSet "csid" :-> () ]
+            , RunChangeSet "csid" :-> 200 ]
           & stubExceptT
 
       it "raises an error if a flag is provided that does not exist in the template" $
@@ -537,7 +537,7 @@ spec =
                 (rootExpectedParams <> [("baz", UsePreviousValue)])
                 rootExpectedTags
                 :-> "csid"
-            , RunChangeSet "csid" :-> () ]
+            , RunChangeSet "csid" :-> 200 ]
           & stubExceptT
 
     context "global stacks" $ do
@@ -560,7 +560,7 @@ spec =
                 [("Env", Value "global")]
                 [("cj:application", "foo"), ("cj:environment", "global")]
                 :-> "csid"
-            , RunChangeSet "csid" :-> () ]
+            , RunChangeSet "csid" :-> 200 ]
           & stubExceptT
 
       it "global stack may not be deployed into namespaces other than global" $ do
@@ -610,7 +610,7 @@ spec =
                 rootExpectedParams
                 rootExpectedTags
                 :-> "csid"
-            , RunChangeSet "csid" :-> () ]
+            , RunChangeSet "csid" :-> 200 ]
           & stubExceptT
 
     context "hooks" $
@@ -635,7 +635,7 @@ spec =
                       rootExpectedParams
                       rootExpectedTags
                       :-> "csid"
-                  , RunChangeSet "csid" :-> () ]
+                  , RunChangeSet "csid" :-> 200 ]
                 & stubExceptT
 
         it "onCreate actions can set parameters" $ do
@@ -662,7 +662,7 @@ spec =
                       (rootExpectedParams <> [("bucketName", Value "the-best-bucket")])
                       rootExpectedTags
                       :-> "csid"
-                  , RunChangeSet "csid" :-> () ]
+                  , RunChangeSet "csid" :-> 200 ]
                 & stubExceptT
 
         it "onCreate actions can override parameters" $ do
@@ -690,7 +690,7 @@ spec =
                       (rootExpectedParams <> [("bucketName", Value "the-best-bucket")])
                       rootExpectedTags
                       :-> "csid"
-                  , RunChangeSet "csid" :-> () ]
+                  , RunChangeSet "csid" :-> 200 ]
                 & stubExceptT
 
         it "onCreate hooks are not executed on stack update" $ do
@@ -711,7 +711,7 @@ spec =
                   rootExpectedParams
                   rootExpectedTags
                   :-> "csid"
-              , RunChangeSet "csid" :-> () ]
+              , RunChangeSet "csid" :-> 200 ]
             & stubExceptT
 
     context "wait" $ do
@@ -733,6 +733,6 @@ spec =
                 rootExpectedParams
                 rootExpectedTags
                 :-> "csid"
-            , RunChangeSet "csid" :-> ()
+            , RunChangeSet "csid" :-> 200
             , Wait StackCreateComplete "base" :-> () ]
           & stubExceptT
