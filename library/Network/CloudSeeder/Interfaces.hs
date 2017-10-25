@@ -11,8 +11,7 @@ module Network.CloudSeeder.Interfaces
 
   , MonadCloud(..)
   , computeChangeset'
-  , getStackInfo'
-  , getStackOutputs'
+  , describeStack'
   , runChangeSet'
   , encrypt'
   , upload'
@@ -183,22 +182,18 @@ data Waiter
 
 class (AsCloudError e, MonadError e m) => MonadCloud e m | m -> e where
   computeChangeset :: StackName -> ProvisionType -> T.Text -> M.Map T.Text ParameterValue -> M.Map T.Text T.Text -> m T.Text
-  getStackInfo :: StackName -> m (Maybe Stack)
-  getStackOutputs :: StackName -> m (Maybe (M.Map T.Text T.Text))
+  describeStack :: StackName -> m (Maybe Stack)
   runChangeSet :: T.Text -> m Int
   encrypt :: T.Text -> T.Text -> m B.ByteString
   upload :: T.Text -> T.Text -> B.ByteString -> m ()
   generateSecret :: Int -> CharType -> m T.Text
-  wait :: Waiter -> T.Text -> m ()
+  wait :: Waiter -> StackName -> m ()
 
   default computeChangeset :: (MonadTrans t, MonadCloud e m', m ~ t m') => StackName -> ProvisionType -> T.Text -> M.Map T.Text ParameterValue -> M.Map T.Text T.Text -> m T.Text
   computeChangeset a b c d e = lift $ computeChangeset a b c d e
 
-  default getStackInfo :: (MonadTrans t, MonadCloud e m', m ~ t m') => StackName -> m (Maybe Stack)
-  getStackInfo = lift . getStackInfo
-
-  default getStackOutputs :: (MonadTrans t, MonadCloud e m', m ~ t m') => StackName -> m (Maybe (M.Map T.Text T.Text))
-  getStackOutputs = lift . getStackOutputs
+  default describeStack :: (MonadTrans t, MonadCloud e m', m ~ t m') => StackName -> m (Maybe Stack)
+  describeStack = lift . describeStack
 
   default runChangeSet :: (MonadTrans t, MonadCloud e m', m ~ t m') => T.Text -> m Int
   runChangeSet = lift . runChangeSet
@@ -212,7 +207,7 @@ class (AsCloudError e, MonadError e m) => MonadCloud e m | m -> e where
   default generateSecret :: (MonadTrans t, MonadCloud e m', m ~ t m') => Int -> CharType -> m T.Text
   generateSecret a b = lift $ generateSecret a b
 
-  default wait :: (MonadTrans t, MonadCloud e m', m ~ t m') => Waiter -> T.Text -> m ()
+  default wait :: (MonadTrans t, MonadCloud e m', m ~ t m') => Waiter -> StackName -> m ()
   wait a b = lift $ wait a b
 
 type MonadCloudIO r e m = (HasEnv r, MonadReader r m, MonadIO m, MonadBaseControl IO m, MonadCatch m, MonadThrow m, AsCloudError e, MonadError e m)
@@ -250,8 +245,8 @@ computeChangeset' (StackName stackName) provisionType templateBody params tags =
     provisionTypeToChangeSetType CreateStack = CF.Create
     provisionTypeToChangeSetType (UpdateStack _) = CF.Update
 
-getStackInfo' :: MonadCloudIO r e m => StackName -> m (Maybe Stack)
-getStackInfo' (StackName stackName) = do
+describeStack' :: MonadCloudIO r e m => StackName -> m (Maybe Stack)
+describeStack' (StackName stackName) = do
   env <- ask
   let request = CF.describeStacks & CF.dStackName ?~ stackName
   runResourceT . runAWST env $ do
@@ -259,27 +254,23 @@ getStackInfo' (StackName stackName) = do
     case response ^? _Just.CF.dsrsStacks of
       Nothing -> return Nothing
       Just [s] -> do
+        let awsOutputs = s ^. CF.sOutputs
+        outputs' <- M.fromList <$> mapM outputToTuple awsOutputs
         let awsParams = s ^. CF.sParameters
         params <- S.fromList <$> mapM awsParameterKey awsParams
-        let stack = Stack params
-        return $ Just stack
+        pure $ Just $ Stack
+          (s ^. CF.sStackStatusReason)
+          (s ^. CF.sChangeSetId)
+          (s ^. CF.sStackName)
+          outputs'
+          params
+          (s ^. CF.sStackId)
+          (s ^. CF.sStackStatus)
       Just _ -> throwing _CloudErrorInternal "describeStacks returned more than one stack"
   where
     awsParameterKey x = case x ^. CF.pParameterKey of
       (Just k) -> return k
       Nothing -> throwing _CloudErrorInternal "stack parameter key was missing"
-
-getStackOutputs' :: MonadCloudIO r e m => StackName -> m (Maybe (M.Map T.Text T.Text))
-getStackOutputs' (StackName stackName) = do
-    env <- ask
-    let request = CF.describeStacks & CF.dStackName ?~ stackName
-    runResourceT . runAWST env $ do
-      response <- IO.trying_ (_StackDoesNotExistError (StackName stackName)) $ send request
-      case response ^? _Just.CF.dsrsStacks of
-        Nothing -> return Nothing
-        Just [stack] -> Just . M.fromList <$> mapM outputToTuple (stack ^. CF.sOutputs)
-        Just _ -> throwing _CloudErrorInternal "describeStacks returned more than one stack"
-  where
     outputToTuple x = case (x ^. CF.oOutputKey, x ^. CF.oOutputValue) of
       (Just k, Just v) -> return (k, v)
       (Nothing, _) -> throwing _CloudErrorInternal "stack output key was missing"
@@ -296,19 +287,18 @@ runChangeSet' csId = do
       200 -> pure statusCode
       _ -> throwing _CloudErrorInternal ("executeChangeSet returned invalid response " <> T.pack (show statusCode) <> " for changeset id " <> csId <> ". This should never happen--please submit an issue to the cloud-seeder repo.")
 
-
-
-wait' :: MonadCloudIO r e m => Waiter -> T.Text -> m ()
+wait' :: MonadCloudIO r e m => Waiter -> StackName -> m ()
 wait' waiter stackName = do
   env <- ask
+  let (StackName sName) = stackName
   void $ runResourceT . runAWST env $
-    await waiter' (CF.describeStacks & CF.dStackName ?~ stackName)
+    await waiter' (CF.describeStacks & CF.dStackName ?~ sName)
   where
     waiter' = case waiter of
       StackCreateComplete -> CF.stackCreateComplete
       StackUpdateComplete -> CF.stackUpdateComplete
-      StackExists -> CF.stackUpdateComplete
-      StackDeleteComplete -> CF.stackUpdateComplete
+      StackExists -> CF.stackExists
+      StackDeleteComplete -> CF.stackDeleteComplete
 
 generateSecret' :: MonadCloudIO r e m => Int -> CharType -> m T.Text
 generateSecret' len charFilter = do

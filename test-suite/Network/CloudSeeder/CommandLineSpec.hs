@@ -1,3 +1,4 @@
+
 module Network.CloudSeeder.CommandLineSpec (spec) where
 
 import Options.Applicative (ParserResult(..), ParserInfo(..), execParserPure, defaultPrefs, handleParseResult, getParseResult)
@@ -14,27 +15,35 @@ spec = do
   describe "Command line" $ do
     let command = ["provision", "stack", "env"]
     describe "argument parsing" $ do
-      it "parses a command with no options after" $ do
-        let expected = ProvisionStack "stack" "env"
-            parsed = getParseResult $ runParser parseArguments command
-        parsed `shouldBe` Just expected
+      describe "provision" $ do
+        it "parses a command with no options after" $ do
+            let expected = ProvisionStack "stack" "env"
+                parsed = getParseResult $ runParser parseArguments command
+            parsed `shouldBe` Just expected
 
-      it "parses a command and ignores any provided options" $ do
-        let expected = ProvisionStack "stack" "env"
-            input = command ++ ["--foo", "val"]
-            parsed = getParseResult $ runParser parseArguments input
-        parsed `shouldBe` Just expected
+        it "parses a command and ignores any provided options" $ do
+            let expected = ProvisionStack "stack" "env"
+                input = command ++ ["--foo", "val"]
+                parsed = getParseResult $ runParser parseArguments input
+            parsed `shouldBe` Just expected
 
-      it "produces help for --help if not all the arguments are supplied" $ do
-        let input = ["provision", "stack", "--help"]
-            parsed = getParseResult $ runParser parseArguments input
-        parsed `shouldBe` Nothing
+        it "produces help for --help if not all the arguments are supplied" $ do
+            let input = ["provision", "stack", "--help"]
+                parsed = getParseResult $ runParser parseArguments input
+            parsed `shouldBe` Nothing
 
-      it "defers help for --help if all the arguments are supplied" $ do
-        let expected = ProvisionStack "stack" "env"
-            input = command ++ ["--help"]
-            parsed = getParseResult $ runParser parseArguments input
-        parsed `shouldBe` Just expected
+        it "defers help for --help if all the arguments are supplied" $ do
+            let expected = ProvisionStack "stack" "env"
+                input = command ++ ["--help"]
+                parsed = getParseResult $ runParser parseArguments input
+            parsed `shouldBe` Just expected
+
+      describe "wait" $ do
+        let waitCmd = ["wait", "stack", "env"]
+        it "parses a command with no options after" $ do
+            let expected = Wait "stack" "env"
+                parsed = getParseResult $ runParser parseArguments waitCmd
+            parsed `shouldBe` Just expected
 
     describe "optional parsing" $ do
       it "parses an optional parameter" $ do

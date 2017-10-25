@@ -28,6 +28,7 @@ import Data.Text.Encoding (encodeUtf8)
 import Data.Semigroup (Endo, (<>))
 import Data.Yaml (decodeEither)
 import Network.AWS (Credentials(Discover), Env, newEnv)
+import Network.AWS.CloudFormation (StackStatus(..))
 import System.Exit (exitFailure)
 
 import Prelude hiding (readFile)
@@ -66,8 +67,7 @@ instance MonadCLI AppM where
 
 instance MonadCloud CliError AppM where
   computeChangeset = computeChangeset'
-  getStackInfo = getStackInfo'
-  getStackOutputs = getStackOutputs'
+  describeStack = describeStack'
   runChangeSet = runChangeSet'
   encrypt = encrypt'
   upload = upload'
@@ -87,11 +87,58 @@ cli
   :: (AsCliError e, MonadCLI m, MonadCloud e m, MonadFileSystem e m, MonadEnvironment m)
   => m (DeploymentConfiguration m) -> m ()
 cli mConfig = do
+  cmd <- getArgs
+  case cmd of
+    CL.Wait nameToWaitFor env -> runWait mConfig nameToWaitFor env
+    CL.ProvisionStack nameToProvision env -> runProvision mConfig nameToProvision env
+
+runWait :: (AsCliError e, MonadCLI m, MonadCloud e m)
+  => m (DeploymentConfiguration m) -> T.Text -> T.Text -> m ()
+runWait mConfig nameToWaitFor env = do
   config <- mConfig
-  (CL.ProvisionStack nameToProvision env) <- getArgs
+  let appName = config ^. name
+      stackName = mkFullStackName env appName nameToWaitFor
+  thisStack <- getStack stackName
+  doWait thisStack
+
+getStack :: (AsCliError e, MonadCloud e m) => StackName -> m Stack
+getStack stackName = do
+  maybeStack <- describeStack stackName
+  let (StackName s) = stackName
+  maybe (throwing _CliStackDoesNotExist s) pure maybeStack
+
+doWait :: (AsCliError e, MonadCloud e m) => Stack -> m ()
+doWait thisStack = do
+  let thisStackStatus = thisStack ^. stackStatus
+      stackName = StackName $ _stackName thisStack
+  case thisStackStatus of
+    SSCreateComplete -> wait StackCreateComplete stackName
+    SSCreateFailed -> wait StackCreateComplete stackName
+    SSCreateInProgress -> wait StackCreateComplete stackName
+    SSDeleteComplete -> wait StackDeleteComplete stackName
+    SSDeleteFailed -> wait StackDeleteComplete stackName
+    SSDeleteInProgress -> wait StackDeleteComplete stackName
+    SSRollbackComplete -> wait StackUpdateComplete stackName
+    SSRollbackFailed -> wait StackUpdateComplete stackName
+    SSRollbackInProgress -> wait StackUpdateComplete stackName
+    SSUpdateComplete -> wait StackUpdateComplete stackName
+    SSUpdateCompleteCleanupInProgress -> wait StackUpdateComplete stackName
+    SSUpdateInProgress -> wait StackUpdateComplete stackName
+    SSUpdateRollbackComplete -> wait StackUpdateComplete stackName
+    SSUpdateRollbackCompleteCleanupInProgress -> wait StackUpdateComplete stackName
+    SSUpdateRollbackFailed -> wait StackUpdateComplete stackName
+    SSUpdateRollbackInProgress -> wait StackUpdateComplete stackName
+    SSReviewInProgress -> throwing _CliStackNeedsChangeSetReview s
+      where (StackName s) = stackName
+
+runProvision :: (AsCliError e, MonadCLI m, MonadCloud e m, MonadFileSystem e m, MonadEnvironment m)
+  => m (DeploymentConfiguration m) -> T.Text -> T.Text -> m ()
+runProvision mConfig nameToProvision env = do
+  config <- mConfig
 
   let dependencies = takeWhile (\stak -> (stak ^. name) /= nameToProvision) (config ^.. stacks.each)
       appName = config ^. name
+      fullStackName = mkFullStackName env appName nameToProvision
 
   stackToProvision <- getStackToProvision config nameToProvision
 
@@ -106,24 +153,22 @@ cli mConfig = do
 
   let paramSources = (config ^. parameterSources) <> (stackToProvision ^. parameterSources)
       paramSpecs = template ^. parameterSpecs._Wrapped
-  newStackOrPreviousValues <- getStackProvisionType $ mkFullStackName env appName nameToProvision
+  newStackOrPreviousValues <- getStackProvisionType fullStackName
   allTags <- getTags config stackToProvision env appName
 
   (waitOption, allParams) <- getParameters newStackOrPreviousValues config stackToProvision paramSources paramSpecs dependencies env appName
 
-  let fullStackName = mkFullStackName env appName nameToProvision
   csId <- computeChangeset fullStackName newStackOrPreviousValues templateBody allParams allTags
   _ <- runChangeSet csId
 
-  when waitOption $
-    wait StackCreateComplete nameToProvision
+  when waitOption $ wait StackCreateComplete fullStackName
 
 getStackProvisionType :: (MonadCloud e m) => StackName -> m ProvisionType
 getStackProvisionType stackName = do
-  maybeStack <- getStackInfo stackName
-  case maybeStack of
-    Nothing -> return CreateStack
-    Just aStack -> return $ UpdateStack $ aStack ^. parameters
+  maybeStack <- describeStack stackName
+  pure $ case maybeStack of
+    Nothing -> CreateStack
+    Just s -> UpdateStack (s ^. parameters)
 
 getStackToProvision
   :: (AsCliError e, MonadError e m)
@@ -168,7 +213,7 @@ getParameters provisionType config stackToProvision paramSources allParamSpecs d
     let paramSpecs = setRequiredSpecsWithPreviousValuesToOptional allParamSpecs
         constants  = paramSources ^..* folded.aside _Constant.to (second Value)
     (waitOption, flags' :: S.Set (T.Text, ParameterValue)) <- options paramSpecs
-    outputs' <- outputs
+    outputs' <- stackOutputs
     envVars' <- envVars
     let fetchedParams = S.unions [envVars', flags', S.map (second Value) outputs']
     let initialParams = S.insert ("Env", Value env) (constants <> fetchedParams)
@@ -211,8 +256,8 @@ getParameters provisionType config stackToProvision paramSources allParamSpecs d
           params = options' ^. CL.parameters
       pure (waitOption, S.fromList $ M.toList params)
 
-    outputs :: m (S.Set (T.Text, T.Text))
-    outputs = do
+    stackOutputs :: m (S.Set (T.Text, T.Text))
+    stackOutputs = do
         maybeLocalOutputs <- getOutputs (\s -> not (s ^. globalStack)) env
         maybeGlobalOutputs <- getOutputs (^. globalStack) "global"
 
@@ -220,10 +265,23 @@ getParameters provisionType config stackToProvision paramSources allParamSpecs d
             outputsOrFailure = runErrors $ traverse (extractResult (flip const)) maybeOutputs
         either (throwing _CliMissingDependencyStacks) (return . S.fromList . concatMap M.toList) outputsOrFailure
       where
+        getOutputs :: (StackConfiguration m -> Bool) -> T.Text -> m [(T.Text, Maybe (M.Map T.Text T.Text))]
         getOutputs predicate envName = do
           let filteredDependencies = dependencies ^.. folded.filtered predicate
               filteredDependencyNames = filteredDependencies ^.. each.name
-          mapM (\stackName -> (stackName,) <$> getStackOutputs (mkFullStackName envName appName stackName)) filteredDependencyNames
+          filteredDependencyStacks :: [(T.Text, Maybe Stack)] <- mapM (\stackName -> (stackName,) <$> describeStack (mkFullStackName envName appName stackName)) filteredDependencyNames
+          let maybeStackToMaybeOutputs :: Maybe Stack -> Maybe (M.Map T.Text T.Text)
+              maybeStackToMaybeOutputs maybeStack = case maybeStack of
+                Just s -> s ^? outputs
+                Nothing -> Nothing
+          let filteredDependencyOutputs :: [(T.Text, Maybe (M.Map T.Text T.Text))]
+                = second maybeStackToMaybeOutputs <$> filteredDependencyStacks
+          pure filteredDependencyOutputs
+
+        -- getOutputs predicate envName = do
+        --   let filteredDependencies = dependencies ^.. folded.filtered predicate
+        --       filteredDependencyNames = filteredDependencies ^.. each.name
+        --   mapM (\stackName -> (stackName,) <$> getStackOutputs (mkFullStackName envName appName stackName)) filteredDependencyNames
 
     validateParameters :: S.Set ParameterSpec -> S.Set (T.Text, ParameterValue) -> m (M.Map T.Text ParameterValue)
     validateParameters paramSpecs params = do

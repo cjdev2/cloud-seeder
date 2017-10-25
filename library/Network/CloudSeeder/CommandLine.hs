@@ -54,6 +54,8 @@ import Network.CloudSeeder.Types
 data Command
   -- | @'ProvisionStack' "stack" "env"@
   = ProvisionStack T.Text T.Text
+  -- | @'Wait' "stack" "env"@
+  | Wait T.Text T.Text
   deriving (Eq, Show)
 
 data Options = Options
@@ -92,8 +94,12 @@ data ParsingPhase r where
 -- documentation for 'Network.CloudSeeder.CommandLine'. This is reflected in the
 -- first argument, which also controls the result of the parser.
 provision :: ParsingPhase r -> Parser r
-provision phase = subparser . command "provision" $ info parser infoMod
+provision phase = subparser
+  $ provisionCmd
+  <> waitCmd
   where
+    provisionCmd = command "provision" $ info (parser ProvisionStack) infoMod
+    waitCmd = command "wait" $ info (parser Wait) (progDesc "Wait for stack to reach a stable state")
     -- When parsing arguments, we want to ignore options. Using 'forwardOptions'
     -- treats them as positional arguments rather than outright ignoring them,
     -- but that’s good enough for our purposes.
@@ -101,14 +107,14 @@ provision phase = subparser . command "provision" $ info parser infoMod
       PhaseArguments -> forwardOptions
       PhaseOptions _ -> mempty
 
-    parser = case phase of
-        PhaseArguments -> commandParser <* ignoreArguments
-        PhaseOptions specs -> helper <*> (commandParser *> optionsParser specs)
+    parser cmd = case phase of
+        PhaseArguments -> commandParser cmd <* ignoreArguments
+        PhaseOptions specs -> helper <*> (commandParser cmd *> optionsParser specs)
       where
         ignoreArguments = many $ strArgument @String hidden
 
-    commandParser :: Parser Command
-    commandParser = ProvisionStack <$> helper' stack <*> helper' env
+    commandParser :: (T.Text -> T.Text -> Command) -> Parser Command
+    commandParser cmd = cmd <$> helper' stack <*> helper' env
       where
         stack = textArgument (metavar "STACK")
         env = textArgument (metavar "ENV")
@@ -119,7 +125,7 @@ provision phase = subparser . command "provision" $ info parser infoMod
           where opts = long "help" <> short 'h' <> internal
 
     optionsParser :: S.Set ParameterSpec -> Parser Options
-    optionsParser specs = Options <$> params <*> wait
+    optionsParser specs = Options <$> params <*> waitOption
       where
         params = M.fromList <$> traverse parameter (S.toList specs)
         parameter spec = do
@@ -127,8 +133,7 @@ provision phase = subparser . command "provision" $ info parser infoMod
               keyStr = T.unpack key
           val <- parameterValueOption (long keyStr <> metavar keyStr <> defaultMod spec)
           pure (key, val)
-        wait :: Parser Bool
-        wait = switch (long "wait" <> short 'w')
+        waitOption = switch (long "wait" <> short 'w')
 
         defaultMod :: ParameterSpec -> Mod OptionFields ParameterValue
         defaultMod (Optional _ x) = value x

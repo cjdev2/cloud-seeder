@@ -20,6 +20,8 @@ import Network.CloudSeeder.Types
 data CliError
   = CliMissingEnvVars [T.Text]
   | CliFileSystemError FileSystemError
+  | CliStackDoesNotExist T.Text
+  | CliStackNeedsChangeSetReview T.Text
   | CliStackNotConfigured T.Text
   | CliStackNotGlobal T.Text
   | CliGlobalStackMustProvisionToGlobal T.Text
@@ -42,6 +44,10 @@ renderCliError (CliMissingEnvVars vars)
   <> T.unlines (map ("  " <>) vars)
 renderCliError (CliFileSystemError (FileNotFound path))
   = "file not found: ‘" <> path <> "’\n"
+renderCliError (CliStackDoesNotExist stackName)
+  = "stack doesn't exist: '" <> stackName <> "'\n"
+renderCliError (CliStackNeedsChangeSetReview stackName)
+  = "stack '" <> stackName <> "' cannot complete until its change set is reviewed\n"
 renderCliError (CliStackNotConfigured stackName)
   = "stack name not present in configuration: ‘" <> stackName <> "’\n"
 renderCliError (CliStackNotGlobal stackName)

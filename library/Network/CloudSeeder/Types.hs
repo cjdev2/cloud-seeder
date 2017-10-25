@@ -19,13 +19,20 @@ module Network.CloudSeeder.Types
   , ParameterMap(..)
 
   , Stack(..)
-  , parameters
+  , HasStackStatusReason(..)
+  , HasChangeSetId(..)
+  , HasName(..)
+  , HasOutputs(..)
+  , HasParameters(..)
+  , HasStackId(..)
+  , HasStackStatus(..)
   ) where
 
 import Control.Applicative ((<|>))
 import Control.Lens (Lens', lens, makeFields, makeClassyPrisms, makeWrapped)
 import Data.Aeson.Types (typeMismatch)
 import Data.Yaml (FromJSON(..), Parser, Value(..), (.:?))
+import Network.AWS.CloudFormation (StackStatus(..))
 
 import qualified Data.HashMap.Strict as H
 import qualified Data.Map as M
@@ -33,7 +40,13 @@ import qualified Data.Text as T
 import qualified Data.Set as S
 
 data Stack = Stack
-  { _stackParameters :: S.Set T.Text
+  { _stackStackStatusReason :: Maybe T.Text
+  , _stackChangeSetId :: Maybe T.Text
+  , _stackName :: T.Text
+  , _stackOutputs :: M.Map T.Text T.Text
+  , _stackParameters :: S.Set T.Text
+  , _stackStackId :: Maybe T.Text
+  , _stackStackStatus :: StackStatus
   }
   deriving (Eq, Show, Ord)
 makeFields ''Stack
