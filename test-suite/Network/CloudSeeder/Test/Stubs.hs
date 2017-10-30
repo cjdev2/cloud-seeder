@@ -2,18 +2,22 @@
 
 module Network.CloudSeeder.Test.Stubs where
 
-import qualified Data.Text as T
-
+import Control.Monad (unless)
 import Control.Monad.Error.Lens (throwing)
 import Control.Monad.Except (MonadError)
 import Control.Monad.Reader (ReaderT(..), ask)
 import Control.Monad.Writer (MonadWriter(..), WriterT(..), mapWriterT)
 import Control.Monad.Trans.Class (MonadTrans(..))
 import Control.Monad.Logger (MonadLogger(..))
+import Data.Align (alignWith)
 import Data.ByteString (ByteString)
+import Data.ByteString.Char8 (unpack)
+import Data.Semigroup ((<>))
+import Data.These (These(..))
 import Options.Applicative (ParserInfo(..), ParserResult(..), execParserPure, defaultPrefs, renderFailure)
 import System.Log.FastLogger (fromLogStr, toLogStr)
 
+import qualified Data.Text as T
 import qualified Data.Map as M
 
 import Network.CloudSeeder.CommandLine
@@ -60,9 +64,20 @@ newtype LoggerT m a = LoggerT (WriterT [ByteString] m a)
            , MonadCLI, MonadFileSystem e, MonadCloud e, MonadEnvironment )
 
 -- | Runs a computation that may emit log messages, returning the result of the
--- computation combined with the set of messages logged, in order.
-runLoggerT :: LoggerT m a -> m (a, [ByteString])
-runLoggerT (LoggerT x) = runWriterT x
+-- computation.
+stubLoggerT :: Monad m => [ByteString] -> LoggerT m a -> m a
+stubLoggerT expectedLogs (LoggerT x) = do
+  (result, logs) <- runWriterT x
+  unless (expectedLogs == logs) $
+    error $ "stubLoggerT -- expected logs did not match actual logs: \n"
+      <> unlines (unpack <$> alignWith render expectedLogs logs)
+  pure result
+  where
+    render :: These ByteString ByteString -> ByteString
+    render = \case
+      These expected actual -> "  expected: '" <> expected <> "' | actual: '" <> actual <> "'"
+      This expected -> "  expected: '" <> expected <> "' | actual: NULL "
+      That actual -> "  expected: NULL | actual: '" <> actual <> "'"
 
 instance MonadWriter w m => MonadWriter w (LoggerT m) where
   tell = lift . tell

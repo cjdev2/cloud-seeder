@@ -90,6 +90,7 @@ tests:
     - mtl
     - optparse-applicative
     - text
+    - these
     - transformers
     - yaml
     ghc-options:

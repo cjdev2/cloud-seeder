@@ -8,7 +8,6 @@ import Control.Monad.Except (ExceptT, runExceptT)
 import Control.Monad.Mock (MockT, WithResult(..), runMockT)
 import Control.Monad.Mock.TH (makeAction, ts)
 import Control.Monad.Trans (MonadTrans, lift)
-import Control.Monad.Logger (LoggingT)
 import Control.Monad.Reader (ReaderT)
 import Control.Monad.State (StateT)
 import Data.Function ((&))
@@ -26,6 +25,8 @@ import Network.CloudSeeder.Types
 import Network.CloudSeeder.Test.Stubs
 
 import qualified Data.Text as T
+import qualified Data.ByteString as B hiding (pack)
+import qualified Data.ByteString.Char8 as B
 
 class Monad m => MonadMissiles m where
   launchMissiles :: m ()
@@ -34,13 +35,13 @@ class Monad m => MonadMissiles m where
   launchMissiles = lift launchMissiles
 
 instance MonadMissiles m => MonadMissiles (ExceptT e m)
-instance MonadMissiles m => MonadMissiles (LoggingT m)
 instance MonadMissiles m => MonadMissiles (ReaderT r m)
 instance MonadMissiles m => MonadMissiles (StateT s m)
 instance MonadMissiles m => MonadMissiles (FileSystemT m)
 instance MonadMissiles m => MonadMissiles (EnvironmentT m)
 instance MonadMissiles m => MonadMissiles (ArgumentsT m)
 instance MonadMissiles m => MonadMissiles (CreateT m)
+instance MonadMissiles m => MonadMissiles (LoggerT m)
 
 makeAction "CloudAction" [ts| MonadCloud CliError, MonadMissiles |]
 mockActionT :: Monad m => [WithResult CloudAction] -> MockT CloudAction m a -> m a
@@ -54,19 +55,34 @@ spec =
     let rootTemplate = "Parameters:\n"
                     <> "  Env:\n"
                     <> "    Type: String\n"
+
         rootExpectedTags = [("cj:application", "foo"), ("cj:environment", "test")]
+
         rootParams = [("Env", "test")]
+
         rootExpectedParams = [("Env", Value "test")]
+
         serverTestArgs = ["provision", "server", "test"]
+
         baseTestArgs = ["provision", "base", "test"]
-        rootExpectedStack stackName = Stack
+
+        expectedStack :: T.Text -> StackStatus -> Stack
+        expectedStack stackName status = Stack
           Nothing
           (Just "csId")
           stackName
           []
           ["Env"]
           (Just "sId")
-          SSCreateComplete
+          status
+
+        expectedStackInfo :: B.ByteString -> StackStatus -> B.ByteString
+        expectedStackInfo stackName status = B.unlines
+          [ "Stack Info:"
+          , "  name: " <> stackName
+          , "  status: " <> B.pack (show status)
+          , "  outputs: fromList []"
+          ]
 
     let stubExceptT :: ExceptT CliError m a -> m (Either CliError a)
         stubExceptT = runExceptT
@@ -79,48 +95,52 @@ spec =
           config = deployment "foo" $
             stack_ "base"
 
-      it "waits for the right status, given the current status of the stack" $ do
+      it "waits for the right stack status, given current stack status" $ do
         runSuccess $ cli config
-          & stubFileSystemT
-            [("base.yaml", rootTemplate)]
+          & stubFileSystemT [("base.yaml", rootTemplate)]
           & stubEnvironmentT []
           & stubCommandLineT waitCmd
+          & stubLoggerT [expectedStackInfo "test-foo-base" SSCreateComplete]
           & mockActionT
-            [ DescribeStack "test-foo-base" :-> Just (rootExpectedStack "test-foo-base")
+            [ DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSCreateComplete)
             , Wait StackCreateComplete "test-foo-base" :-> ()
+            , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSCreateComplete)
             ]
           & stubExceptT
 
         runSuccess $ cli config
-          & stubFileSystemT
-            [("base.yaml", rootTemplate)]
+          & stubFileSystemT [("base.yaml", rootTemplate)]
           & stubEnvironmentT []
           & stubCommandLineT waitCmd
+          & stubLoggerT [expectedStackInfo "test-foo-base" SSCreateFailed]
           & mockActionT
-            [ DescribeStack "test-foo-base" :-> Just (rootExpectedStack "test-foo-base" & stackStatus .~ SSCreateFailed)
+            [ DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSCreateFailed)
             , Wait StackCreateComplete "test-foo-base" :-> ()
+            , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSCreateFailed)
             ]
           & stubExceptT
 
         runSuccess $ cli config
-          & stubFileSystemT
-            [("base.yaml", rootTemplate)]
+          & stubFileSystemT [("base.yaml", rootTemplate)]
           & stubEnvironmentT []
           & stubCommandLineT waitCmd
+          & stubLoggerT [expectedStackInfo "test-foo-base" SSCreateComplete]
           & mockActionT
-            [ DescribeStack "test-foo-base" :-> Just (rootExpectedStack "test-foo-base" & stackStatus .~ SSCreateInProgress)
+            [ DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSCreateInProgress)
             , Wait StackCreateComplete "test-foo-base" :-> ()
+            , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSCreateComplete)
             ]
           & stubExceptT
 
         runSuccess $ cli config
-          & stubFileSystemT
-            [("base.yaml", rootTemplate)]
+          & stubFileSystemT [("base.yaml", rootTemplate)]
           & stubEnvironmentT []
           & stubCommandLineT waitCmd
+          & stubLoggerT [expectedStackInfo "test-foo-base" SSDeleteComplete ]
           & mockActionT
-            [ DescribeStack "test-foo-base" :-> Just (rootExpectedStack "test-foo-base" & stackStatus .~ SSDeleteComplete)
+            [ DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSDeleteComplete)
             , Wait StackDeleteComplete "test-foo-base" :-> ()
+            , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSDeleteComplete)
             ]
           & stubExceptT
 
@@ -129,20 +149,11 @@ spec =
             [("base.yaml", rootTemplate)]
           & stubEnvironmentT []
           & stubCommandLineT waitCmd
+          & stubLoggerT [expectedStackInfo "test-foo-base" SSRollbackComplete ]
           & mockActionT
-            [ DescribeStack "test-foo-base" :-> Just (rootExpectedStack "test-foo-base" & stackStatus .~ SSDeleteInProgress)
-            , Wait StackDeleteComplete "test-foo-base" :-> ()
-            ]
-          & stubExceptT
-
-        runSuccess $ cli config
-          & stubFileSystemT
-            [("base.yaml", rootTemplate)]
-          & stubEnvironmentT []
-          & stubCommandLineT waitCmd
-          & mockActionT
-            [ DescribeStack "test-foo-base" :-> Just (rootExpectedStack "test-foo-base" & stackStatus .~ SSRollbackComplete)
+            [ DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSRollbackComplete)
             , Wait StackUpdateComplete "test-foo-base" :-> ()
+            , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSRollbackComplete)
             ]
           & stubExceptT
 
@@ -151,9 +162,11 @@ spec =
             [("base.yaml", rootTemplate)]
           & stubEnvironmentT []
           & stubCommandLineT waitCmd
+          & stubLoggerT [expectedStackInfo "test-foo-base" SSRollbackFailed ]
           & mockActionT
-            [ DescribeStack "test-foo-base" :-> Just (rootExpectedStack "test-foo-base" & stackStatus .~ SSRollbackFailed)
+            [ DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSRollbackFailed)
             , Wait StackUpdateComplete "test-foo-base" :-> ()
+            , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSRollbackFailed)
             ]
           & stubExceptT
 
@@ -162,9 +175,11 @@ spec =
             [("base.yaml", rootTemplate)]
           & stubEnvironmentT []
           & stubCommandLineT waitCmd
+          & stubLoggerT [expectedStackInfo "test-foo-base" SSRollbackComplete ]
           & mockActionT
-            [ DescribeStack "test-foo-base" :-> Just (rootExpectedStack "test-foo-base" & stackStatus .~ SSRollbackInProgress)
+            [ DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSRollbackInProgress)
             , Wait StackUpdateComplete "test-foo-base" :-> ()
+            , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSRollbackComplete)
             ]
           & stubExceptT
 
@@ -173,9 +188,11 @@ spec =
             [("base.yaml", rootTemplate)]
           & stubEnvironmentT []
           & stubCommandLineT waitCmd
+          & stubLoggerT [expectedStackInfo "test-foo-base" SSUpdateComplete ]
           & mockActionT
-            [ DescribeStack "test-foo-base" :-> Just (rootExpectedStack "test-foo-base" & stackStatus .~ SSUpdateComplete)
+            [ DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSUpdateComplete)
             , Wait StackUpdateComplete "test-foo-base" :-> ()
+            , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSUpdateComplete)
             ]
           & stubExceptT
 
@@ -184,9 +201,11 @@ spec =
             [("base.yaml", rootTemplate)]
           & stubEnvironmentT []
           & stubCommandLineT waitCmd
+          & stubLoggerT [expectedStackInfo "test-foo-base" SSUpdateComplete ]
           & mockActionT
-            [ DescribeStack "test-foo-base" :-> Just (rootExpectedStack "test-foo-base" & stackStatus .~ SSUpdateCompleteCleanupInProgress)
+            [ DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSUpdateCompleteCleanupInProgress)
             , Wait StackUpdateComplete "test-foo-base" :-> ()
+            , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSUpdateComplete)
             ]
           & stubExceptT
 
@@ -195,9 +214,11 @@ spec =
             [("base.yaml", rootTemplate)]
           & stubEnvironmentT []
           & stubCommandLineT waitCmd
+          & stubLoggerT [expectedStackInfo "test-foo-base" SSUpdateComplete ]
           & mockActionT
-            [ DescribeStack "test-foo-base" :-> Just (rootExpectedStack "test-foo-base" & stackStatus .~ SSUpdateInProgress)
+            [ DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSUpdateInProgress)
             , Wait StackUpdateComplete "test-foo-base" :-> ()
+            , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSUpdateComplete)
             ]
           & stubExceptT
 
@@ -206,9 +227,11 @@ spec =
             [("base.yaml", rootTemplate)]
           & stubEnvironmentT []
           & stubCommandLineT waitCmd
+          & stubLoggerT [expectedStackInfo "test-foo-base" SSUpdateRollbackComplete ]
           & mockActionT
-            [ DescribeStack "test-foo-base" :-> Just (rootExpectedStack "test-foo-base" & stackStatus .~ SSUpdateRollbackComplete)
+            [ DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSUpdateRollbackComplete)
             , Wait StackUpdateComplete "test-foo-base" :-> ()
+            , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSUpdateRollbackComplete)
             ]
           & stubExceptT
 
@@ -217,9 +240,11 @@ spec =
             [("base.yaml", rootTemplate)]
           & stubEnvironmentT []
           & stubCommandLineT waitCmd
+          & stubLoggerT [expectedStackInfo "test-foo-base" SSUpdateRollbackComplete ]
           & mockActionT
-            [ DescribeStack "test-foo-base" :-> Just (rootExpectedStack "test-foo-base" & stackStatus .~ SSUpdateRollbackCompleteCleanupInProgress)
+            [ DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSUpdateRollbackCompleteCleanupInProgress)
             , Wait StackUpdateComplete "test-foo-base" :-> ()
+            , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSUpdateRollbackComplete)
             ]
           & stubExceptT
 
@@ -228,9 +253,11 @@ spec =
             [("base.yaml", rootTemplate)]
           & stubEnvironmentT []
           & stubCommandLineT waitCmd
+          & stubLoggerT [expectedStackInfo "test-foo-base" SSUpdateRollbackFailed ]
           & mockActionT
-            [ DescribeStack "test-foo-base" :-> Just (rootExpectedStack "test-foo-base" & stackStatus .~ SSUpdateRollbackFailed)
+            [ DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSUpdateRollbackFailed)
             , Wait StackUpdateComplete "test-foo-base" :-> ()
+            , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSUpdateRollbackFailed)
             ]
           & stubExceptT
 
@@ -239,9 +266,11 @@ spec =
             [("base.yaml", rootTemplate)]
           & stubEnvironmentT []
           & stubCommandLineT waitCmd
+          & stubLoggerT [expectedStackInfo "test-foo-base" SSUpdateRollbackComplete ]
           & mockActionT
-            [ DescribeStack "test-foo-base" :-> Just (rootExpectedStack "test-foo-base" & stackStatus .~ SSUpdateRollbackInProgress)
+            [ DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSUpdateRollbackInProgress)
             , Wait StackUpdateComplete "test-foo-base" :-> ()
+            , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSUpdateRollbackComplete)
             ]
           & stubExceptT
 
@@ -250,8 +279,9 @@ spec =
           & stubFileSystemT [ ("base.yaml", rootTemplate) ]
           & stubEnvironmentT []
           & stubCommandLineT waitCmd
+          & stubLoggerT []
           & mockActionT
-            [ DescribeStack "test-foo-base" :-> Just (rootExpectedStack "test-foo-base" & stackStatus .~ SSReviewInProgress) ]
+            [ DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSReviewInProgress) ]
           & stubExceptT
 
       it "throws an error if stack doesn't exist" $
@@ -260,6 +290,7 @@ spec =
             [("base.yaml", rootTemplate)]
           & stubEnvironmentT []
           & stubCommandLineT waitCmd
+          & stubLoggerT []
           & mockActionT
             [ DescribeStack "test-foo-base" :-> Nothing]
           & stubExceptT
@@ -273,6 +304,7 @@ spec =
           & stubFileSystemT []
           & stubEnvironmentT []
           & stubCommandLineT serverTestArgs
+          & stubLoggerT []
           & mockActionT []
           & stubExceptT
 
@@ -283,6 +315,7 @@ spec =
           & stubFileSystemT [("base.yaml", "%invalid")]
           & stubEnvironmentT []
           & stubCommandLineT baseTestArgs
+          & stubLoggerT []
           & mockActionT []
           & stubExceptT
 
@@ -294,6 +327,7 @@ spec =
             [("base.yaml", rootTemplate)]
           & stubEnvironmentT []
           & stubCommandLineT fakeCliInput
+          & stubLoggerT []
           & mockActionT []
           & stubExceptT
 
@@ -310,6 +344,7 @@ spec =
           & stubFileSystemT [ ("base.yaml", baseTemplate) ]
           & stubEnvironmentT []
           & stubCommandLineT baseTestArgs
+          & stubLoggerT []
           & mockActionT [DescribeStack "test-foo-base" :-> Nothing]
           & stubExceptT
 
@@ -325,6 +360,7 @@ spec =
               [("base.yaml", rootTemplate)]
             & stubEnvironmentT []
             & stubCommandLineT baseTestArgs
+            & stubLoggerT []
             & mockActionT
               [ DescribeStack "test-foo-base" :-> Nothing
               , ComputeChangeset "test-foo-base" CreateStack rootTemplate rootExpectedParams rootExpectedTags :-> "csid"
@@ -347,9 +383,10 @@ spec =
               [ ("server.yaml", serverTemplate) ]
             & stubEnvironmentT []
             & stubCommandLineT serverTestArgs
+            & stubLoggerT []
             & mockActionT
               [ DescribeStack "test-foo-server" :-> Nothing
-              , DescribeStack "test-foo-base" :-> Just (rootExpectedStack "test-foo-base" & outputs .~ baseOutputs)
+              , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSCreateComplete & outputs .~ baseOutputs)
               , ComputeChangeset
                   "test-foo-server"
                   CreateStack
@@ -369,10 +406,11 @@ spec =
               [ ("frontend.yaml", frontendtemplate) ]
             & stubEnvironmentT []
             & stubCommandLineT ["provision", "frontend", "test"]
+            & stubLoggerT []
             & mockActionT
               [ DescribeStack "test-foo-frontend" :-> Nothing
-              , DescribeStack "test-foo-base" :-> Just (rootExpectedStack "test-foo-base" & outputs .~ baseOutputs)
-              , DescribeStack "test-foo-server" :-> Just (rootExpectedStack "test-foo-server")
+              , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSCreateComplete & outputs .~ baseOutputs)
+              , DescribeStack "test-foo-server" :-> Just (expectedStack "test-foo-server" SSCreateComplete)
               , ComputeChangeset
                   "test-foo-frontend"
                   CreateStack
@@ -389,10 +427,11 @@ spec =
               [ ("frontend.yaml", rootTemplate) ]
             & stubEnvironmentT []
             & stubCommandLineT ["provision", "frontend", "test"]
+            & stubLoggerT []
             & mockActionT
               [ DescribeStack "test-foo-frontend" :-> Nothing
               , DescribeStack "test-foo-base" :-> Nothing
-              , DescribeStack "test-foo-server" :-> Just (rootExpectedStack "test-foo-server") ]
+              , DescribeStack "test-foo-server" :-> Just (expectedStack "test-foo-server" SSCreateComplete) ]
             & stubExceptT
 
           runFailure _CliMissingDependencyStacks ["server"] $ cli config
@@ -400,9 +439,10 @@ spec =
               [ ("frontend.yaml", rootTemplate) ]
             & stubEnvironmentT []
             & stubCommandLineT ["provision", "frontend", "test"]
+            & stubLoggerT []
             & mockActionT
               [ DescribeStack "test-foo-frontend" :-> Nothing
-              , DescribeStack "test-foo-base" :-> Just (rootExpectedStack "test-foo-base")
+              , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSCreateComplete)
               , DescribeStack "test-foo-server" :-> Nothing ]
             & stubExceptT
 
@@ -411,6 +451,7 @@ spec =
               [ ("frontend.yaml", rootTemplate) ]
             & stubEnvironmentT []
             & stubCommandLineT ["provision", "frontend", "test"]
+            & stubLoggerT []
             & mockActionT
               [ DescribeStack "test-foo-frontend" :-> Nothing
               , DescribeStack "test-foo-base" :-> Nothing
@@ -437,6 +478,7 @@ spec =
               [ ("base.yaml", template) ]
             & stubEnvironmentT env
             & stubCommandLineT baseTestArgs
+            & stubLoggerT []
             & mockActionT
               [ DescribeStack "test-foo-base" :-> Nothing
               , ComputeChangeset "test-foo-base" CreateStack template expectedParams rootExpectedTags :-> "csid"
@@ -450,6 +492,7 @@ spec =
               [ ("base.yaml", rootTemplate) ]
             & stubEnvironmentT env
             & stubCommandLineT baseTestArgs
+            & stubLoggerT []
             & mockActionT [DescribeStack "test-foo-base" :-> Nothing]
             & stubExceptT
 
@@ -459,6 +502,7 @@ spec =
               [ ("base.yaml", rootTemplate) ]
             & stubEnvironmentT []
             & stubCommandLineT baseTestArgs
+            & stubLoggerT []
             & mockActionT [DescribeStack "test-foo-base" :-> Nothing]
             & stubExceptT
 
@@ -487,6 +531,7 @@ spec =
               [ ("base.yaml", baseTemplate) ]
             & stubEnvironmentT baseEnv
             & stubCommandLineT baseTestArgs
+            & stubLoggerT []
             & mockActionT
               [ DescribeStack "test-foo-base" :-> Nothing
               , ComputeChangeset
@@ -511,9 +556,10 @@ spec =
               [ ("server.yaml", serverTemplate) ]
             & stubEnvironmentT serverEnv
             & stubCommandLineT serverTestArgs
+            & stubLoggerT []
             & mockActionT
               [ DescribeStack "test-foo-server" :-> Nothing
-              , DescribeStack "test-foo-base" :-> Just (rootExpectedStack "test-foo-base")
+              , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSCreateComplete)
               , ComputeChangeset
                   "test-foo-server"
                   CreateStack
@@ -540,6 +586,7 @@ spec =
               [ ("base.yaml", rootTemplate) ]
             & stubEnvironmentT []
             & stubCommandLineT baseTestArgs
+            & stubLoggerT []
             & mockActionT
               [ DescribeStack "test-foo-base" :-> Nothing
               , ComputeChangeset
@@ -573,6 +620,7 @@ spec =
               [ ("base.yaml", rootTemplate) ]
             & stubEnvironmentT []
             & stubCommandLineT baseTestArgs
+            & stubLoggerT []
             & mockActionT
               [ DescribeStack "test-foo-base" :-> Nothing
               , ComputeChangeset
@@ -590,9 +638,10 @@ spec =
               [ ("server.yaml", rootTemplate) ]
             & stubEnvironmentT []
             & stubCommandLineT serverTestArgs
+            & stubLoggerT []
             & mockActionT
               [ DescribeStack "test-foo-server" :-> Nothing
-              , DescribeStack "test-foo-base" :-> Just (rootExpectedStack "test-foo-base")
+              , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSCreateComplete)
               , ComputeChangeset
                   "test-foo-server"
                   CreateStack
@@ -625,6 +674,7 @@ spec =
                 [ ("base.yaml", template) ]
               & stubEnvironmentT []
               & stubCommandLineT ["provision", "base", "prod"]
+              & stubLoggerT []
               & mockActionT
                 [ DescribeStack "prod-foo-base" :-> Nothing
                 , ComputeChangeset
@@ -643,6 +693,7 @@ spec =
                 [ ("base.yaml", template) ]
               & stubEnvironmentT []
               & stubCommandLineT baseTestArgs
+              & stubLoggerT []
               & mockActionT
                 [ DescribeStack "test-foo-base" :-> Nothing
                 , ComputeChangeset
@@ -672,6 +723,7 @@ spec =
               [ ("base.yaml", template) ]
             & stubEnvironmentT []
             & stubCommandLineT ["provision", "base", "test", "--baz", "zab"]
+            & stubLoggerT []
             & mockActionT
               [ DescribeStack "test-foo-base" :-> Nothing
               , ComputeChangeset
@@ -690,6 +742,7 @@ spec =
               [ ("base.yaml", template) ]
             & stubEnvironmentT []
             & stubCommandLineT ["provision", "base", "test"]
+            & stubLoggerT []
             & mockActionT
               [ DescribeStack "test-foo-base" :-> Nothing
               , ComputeChangeset
@@ -712,6 +765,7 @@ spec =
               & stubEnvironmentT []
               & stubCommandLineT
                 ["provision", "base", "test", "--foo", "oof", "--bar", "rab", "--baz", "zab"]
+              & stubLoggerT []
               & mockActionT [DescribeStack "test-foo-base" :-> Nothing]
               & stubExceptT
 
@@ -726,9 +780,10 @@ spec =
               [ ("base.yaml", baseTemplate) ]
             & stubEnvironmentT []
             & stubCommandLineT ["provision", "base", "test"]
+            & stubLoggerT []
             & mockActionT
               [ DescribeStack "test-foo-base" :->
-                  Just (rootExpectedStack "test-foo-base"
+                  Just (expectedStack "test-foo-base" SSCreateComplete
                     & parameters .~ ["Env", "baz"])
               , ComputeChangeset
                   "test-foo-base"
@@ -751,6 +806,7 @@ spec =
               [ ("repo.yaml", rootTemplate) ]
             & stubEnvironmentT []
             & stubCommandLineT ["provision", "repo", "global"]
+            & stubLoggerT []
             & mockActionT
               [ DescribeStack "global-foo-repo" :-> Nothing
               , ComputeChangeset
@@ -773,6 +829,7 @@ spec =
               [ ("repo.yaml", rootTemplate) ]
             & stubEnvironmentT []
             & stubCommandLineT ["provision", "repo", "test"]
+            & stubLoggerT []
             & mockActionT []
             & stubExceptT
 
@@ -786,6 +843,7 @@ spec =
               [("base.yaml", rootTemplate)]
             & stubEnvironmentT []
             & stubCommandLineT ["provision", "base", "global"]
+            & stubLoggerT []
             & mockActionT []
             & stubExceptT
 
@@ -799,10 +857,11 @@ spec =
               [ ("base.yaml", rootTemplate) ]
             & stubEnvironmentT []
             & stubCommandLineT ["provision", "base", "test"]
+            & stubLoggerT []
             & mockActionT
               [ DescribeStack "test-foo-base" :-> Nothing
-              , DescribeStack "global-foo-repo" :-> Just (rootExpectedStack "test-foo-repo")
-              , DescribeStack "global-foo-accountSettings" :-> Just (rootExpectedStack "test-foo-accountSettings")
+              , DescribeStack "global-foo-repo" :-> Just (expectedStack "test-foo-repo" SSCreateComplete)
+              , DescribeStack "global-foo-accountSettings" :-> Just (expectedStack "test-foo-accountSettings" SSCreateComplete)
               , ComputeChangeset
                   "test-foo-base"
                   CreateStack
@@ -825,6 +884,7 @@ spec =
                     [ ("base.yaml", rootTemplate) ]
                   & stubEnvironmentT []
                   & stubCommandLineT ["provision", "base", "test"]
+                  & stubLoggerT []
                   & mockActionT
                     [ DescribeStack "test-foo-base" :-> Nothing
                     , LaunchMissiles :-> ()
@@ -853,6 +913,7 @@ spec =
                     [ ("base.yaml", template') ]
                   & stubEnvironmentT []
                   & stubCommandLineT ["provision", "base", "test"]
+                  & stubLoggerT []
                   & mockActionT
                     [ DescribeStack "test-foo-base" :-> Nothing
                     , ComputeChangeset
@@ -881,6 +942,7 @@ spec =
                     [ ("base.yaml", template') ]
                   & stubEnvironmentT []
                   & stubCommandLineT ["provision", "base", "test"]
+                  & stubLoggerT []
                   & mockActionT
                     [ DescribeStack "test-foo-base" :-> Nothing
                     , ComputeChangeset
@@ -902,8 +964,9 @@ spec =
                 [ ("base.yaml", rootTemplate) ]
               & stubEnvironmentT []
               & stubCommandLineT ["provision", "base", "test"]
+              & stubLoggerT []
               & mockActionT
-                [ DescribeStack "test-foo-base" :-> Just (rootExpectedStack "test-foo-base")
+                [ DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSCreateComplete)
                 , ComputeChangeset
                     "test-foo-base"
                     (UpdateStack ["Env"])
@@ -924,6 +987,7 @@ spec =
               [ ("base.yaml", rootTemplate) ]
             & stubEnvironmentT []
             & stubCommandLineT ["provision", "base", "test", "--wait"]
+            & stubLoggerT []
             & mockActionT
               [ DescribeStack "test-foo-base" :-> Nothing
               , ComputeChangeset

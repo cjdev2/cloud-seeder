@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
 
@@ -17,7 +18,7 @@ import Control.Monad.Catch (MonadCatch, MonadThrow)
 import Control.Monad.Error.Lens (throwing)
 import Control.Monad.Except (MonadError(..), ExceptT, runExceptT)
 import Control.Monad.IO.Class (MonadIO)
-import Control.Monad.Logger (LoggingT, MonadLogger, runStderrLoggingT)
+import Control.Monad.Logger (LoggingT, MonadLogger, runStderrLoggingT, logInfo)
 import Control.Monad.Reader (MonadReader, ReaderT, runReaderT)
 import Control.Monad.State (execStateT)
 import Control.Monad.Trans.Control (MonadBaseControl(..))
@@ -77,14 +78,14 @@ instance MonadCloud CliError AppM where
 runAppM :: AppM a -> IO a
 runAppM (AppM x) = do
   env <- newEnv Discover
-  result <- runStderrLoggingT . runExceptT $ runReaderT x env
+  result <- runStderrLoggingT (runExceptT (runReaderT x env))
   either (\err -> T.putStr (renderCliError err) >> exitFailure) return result
 
 --------------------------------------------------------------------------------
 -- Logic
 
 cli
-  :: (AsCliError e, MonadCLI m, MonadCloud e m, MonadFileSystem e m, MonadEnvironment m)
+  :: (AsCliError e, MonadCLI m, MonadCloud e m, MonadFileSystem e m, MonadEnvironment m, MonadLogger m)
   => m (DeploymentConfiguration m) -> m ()
 cli mConfig = do
   cmd <- getArgs
@@ -92,7 +93,7 @@ cli mConfig = do
     CL.Wait nameToWaitFor env -> runWait mConfig nameToWaitFor env
     CL.ProvisionStack nameToProvision env -> runProvision mConfig nameToProvision env
 
-runWait :: (AsCliError e, MonadCLI m, MonadCloud e m)
+runWait :: (AsCliError e, MonadCLI m, MonadCloud e m, MonadLogger m)
   => m (DeploymentConfiguration m) -> T.Text -> T.Text -> m ()
 runWait mConfig nameToWaitFor env = do
   config <- mConfig
@@ -100,6 +101,19 @@ runWait mConfig nameToWaitFor env = do
       stackName = mkFullStackName env appName nameToWaitFor
   thisStack <- getStack stackName
   doWait thisStack
+  maybeStackInfo <- describeStack stackName
+  $(logInfo) =<< maybe
+    (throwing _CliCloudError (CloudErrorInternal "stack did not exist after wait"))
+    (pure . render)
+    maybeStackInfo
+  where
+    render :: (HasName s T.Text, HasStackStatus s StackStatus, HasOutputs s (M.Map T.Text T.Text)) => s -> T.Text
+    render s = T.unlines
+      [ "Stack Info:"
+      , "  name: " <> s^.name
+      , "  status: " <> T.pack (show (s^.stackStatus))
+      , "  outputs: " <> T.pack (show (s^.outputs))
+      ]
 
 getStack :: (AsCliError e, MonadCloud e m) => StackName -> m Stack
 getStack stackName = do
