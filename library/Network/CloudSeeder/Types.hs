@@ -18,6 +18,8 @@ module Network.CloudSeeder.Types
 
   , ParameterMap(..)
 
+  , StackName(..)
+
   , Stack(..)
   , HasStackStatusReason(..)
   , HasChangeSetId(..)
@@ -29,15 +31,22 @@ module Network.CloudSeeder.Types
   ) where
 
 import Control.Applicative ((<|>))
+import Control.DeepSeq (NFData)
 import Control.Lens (Lens', lens, makeFields, makeClassyPrisms, makeWrapped)
 import Data.Aeson.Types (typeMismatch)
+import Data.String (IsString)
 import Data.Yaml (FromJSON(..), Parser, Value(..), (.:?))
+import GHC.Generics (Generic)
 import Network.AWS.CloudFormation (StackStatus(..))
 
 import qualified Data.HashMap.Strict as H
 import qualified Data.Map as M
 import qualified Data.Text as T
 import qualified Data.Set as S
+
+newtype StackName = StackName T.Text
+  deriving (Eq, Show, Generic, IsString)
+instance NFData StackName
 
 data Stack = Stack
   { _stackStackStatusReason :: Maybe T.Text

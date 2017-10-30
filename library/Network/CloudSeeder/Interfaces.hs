@@ -25,7 +25,6 @@ module Network.CloudSeeder.Interfaces
   , Waiter(..)
 
   , MonadEnvironment(..)
-  , StackName(..)
 
   , MonadFileSystem(..)
   , FileSystemError(..)
@@ -36,7 +35,6 @@ module Network.CloudSeeder.Interfaces
 
 import Prelude hiding (readFile)
 
-import Control.DeepSeq (NFData)
 import Control.Exception (throw)
 import Control.Lens (Traversal', (.~), (^.), (^?), (?~), _Just, only, to)
 import Control.Lens.TH (makeClassy, makeClassyPrisms)
@@ -57,10 +55,8 @@ import Crypto.Random
 import Data.Char (isAlpha, isAlphaNum, isDigit)
 import Data.Function ((&))
 import Data.Semigroup ((<>))
-import Data.String (IsString)
 import Data.UUID (toText)
 import Data.UUID.V4 (nextRandom)
-import GHC.Generics (Generic)
 import GHC.IO.Exception (IOException(..), IOErrorType(..))
 import Network.AWS (AsError(..), ErrorMessage(..), HasEnv(..), serviceMessage)
 import Options.Applicative (execParser)
@@ -80,10 +76,6 @@ import qualified System.Environment as IO
 
 import qualified Network.CloudSeeder.CommandLine as CL
 import Network.CloudSeeder.Types
-
-newtype StackName = StackName T.Text
-  deriving (Eq, Show, Generic, IsString)
-instance NFData StackName
 
 --------------------------------------------------------------------------------
 -- | A class of monads that can access command-line arguments.

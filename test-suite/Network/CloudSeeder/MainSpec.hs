@@ -1,15 +1,8 @@
-{-# LANGUAGE QuasiQuotes #-}
-{-# LANGUAGE TemplateHaskell #-}
-
 module Network.CloudSeeder.MainSpec (spec) where
 
 import Control.Lens ((.~), review)
 import Control.Monad.Except (ExceptT, runExceptT)
-import Control.Monad.Mock (MockT, WithResult(..), runMockT)
-import Control.Monad.Mock.TH (makeAction, ts)
-import Control.Monad.Trans (MonadTrans, lift)
-import Control.Monad.Reader (ReaderT)
-import Control.Monad.State (StateT)
+import Control.Monad.Mock (WithResult(..))
 import Data.Function ((&))
 import Data.Functor.Identity (runIdentity)
 import Data.Semigroup ((<>))
@@ -28,25 +21,6 @@ import qualified Data.Text as T
 import qualified Data.ByteString as B hiding (pack)
 import qualified Data.ByteString.Char8 as B
 
-class Monad m => MonadMissiles m where
-  launchMissiles :: m ()
-
-  default launchMissiles :: (MonadTrans t, MonadMissiles m', m ~ t m') => m ()
-  launchMissiles = lift launchMissiles
-
-instance MonadMissiles m => MonadMissiles (ExceptT e m)
-instance MonadMissiles m => MonadMissiles (ReaderT r m)
-instance MonadMissiles m => MonadMissiles (StateT s m)
-instance MonadMissiles m => MonadMissiles (FileSystemT m)
-instance MonadMissiles m => MonadMissiles (EnvironmentT m)
-instance MonadMissiles m => MonadMissiles (ArgumentsT m)
-instance MonadMissiles m => MonadMissiles (CreateT m)
-instance MonadMissiles m => MonadMissiles (LoggerT m)
-
-makeAction "CloudAction" [ts| MonadCloud CliError, MonadMissiles |]
-mockActionT :: Monad m => [WithResult CloudAction] -> MockT CloudAction m a -> m a
-mockActionT = runMockT
-
 type TagList = forall a. (IsList a, Item a ~ (T.Text, T.Text)) => a
 
 spec :: Spec
@@ -55,26 +29,20 @@ spec =
     let rootTemplate = "Parameters:\n"
                     <> "  Env:\n"
                     <> "    Type: String\n"
-
         rootExpectedTags = [("cj:application", "foo"), ("cj:environment", "test")]
-
         rootParams = [("Env", "test")]
-
         rootExpectedParams = [("Env", Value "test")]
-
         serverTestArgs = ["provision", "server", "test"]
-
         baseTestArgs = ["provision", "base", "test"]
 
         expectedStack :: T.Text -> StackStatus -> Stack
-        expectedStack stackName status = Stack
+        expectedStack stackName = Stack
           Nothing
           (Just "csId")
           stackName
           []
           ["Env"]
           (Just "sId")
-          status
 
         expectedStackInfo :: B.ByteString -> StackStatus -> B.ByteString
         expectedStackInfo stackName status = B.unlines
@@ -90,263 +58,9 @@ spec =
         runFailure errPrism errContents action =
           runIdentity action `shouldBe` Left (review errPrism errContents)
 
-    describe "wait" $ do
-      let waitCmd = ["wait", "base", "test"]
-          config = deployment "foo" $
-            stack_ "base"
-
-      it "waits for the right stack status, given current stack status" $ do
-        runSuccess $ cli config
-          & stubFileSystemT [("base.yaml", rootTemplate)]
-          & stubEnvironmentT []
-          & stubCommandLineT waitCmd
-          & stubLoggerT [expectedStackInfo "test-foo-base" SSCreateComplete]
-          & mockActionT
-            [ DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSCreateComplete)
-            , Wait StackCreateComplete "test-foo-base" :-> ()
-            , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSCreateComplete)
-            ]
-          & stubExceptT
-
-        runSuccess $ cli config
-          & stubFileSystemT [("base.yaml", rootTemplate)]
-          & stubEnvironmentT []
-          & stubCommandLineT waitCmd
-          & stubLoggerT [expectedStackInfo "test-foo-base" SSCreateFailed]
-          & mockActionT
-            [ DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSCreateFailed)
-            , Wait StackCreateComplete "test-foo-base" :-> ()
-            , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSCreateFailed)
-            ]
-          & stubExceptT
-
-        runSuccess $ cli config
-          & stubFileSystemT [("base.yaml", rootTemplate)]
-          & stubEnvironmentT []
-          & stubCommandLineT waitCmd
-          & stubLoggerT [expectedStackInfo "test-foo-base" SSCreateComplete]
-          & mockActionT
-            [ DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSCreateInProgress)
-            , Wait StackCreateComplete "test-foo-base" :-> ()
-            , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSCreateComplete)
-            ]
-          & stubExceptT
-
-        runSuccess $ cli config
-          & stubFileSystemT [("base.yaml", rootTemplate)]
-          & stubEnvironmentT []
-          & stubCommandLineT waitCmd
-          & stubLoggerT [expectedStackInfo "test-foo-base" SSDeleteComplete ]
-          & mockActionT
-            [ DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSDeleteComplete)
-            , Wait StackDeleteComplete "test-foo-base" :-> ()
-            , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSDeleteComplete)
-            ]
-          & stubExceptT
-
-        runSuccess $ cli config
-          & stubFileSystemT
-            [("base.yaml", rootTemplate)]
-          & stubEnvironmentT []
-          & stubCommandLineT waitCmd
-          & stubLoggerT [expectedStackInfo "test-foo-base" SSRollbackComplete ]
-          & mockActionT
-            [ DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSRollbackComplete)
-            , Wait StackUpdateComplete "test-foo-base" :-> ()
-            , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSRollbackComplete)
-            ]
-          & stubExceptT
-
-        runSuccess $ cli config
-          & stubFileSystemT
-            [("base.yaml", rootTemplate)]
-          & stubEnvironmentT []
-          & stubCommandLineT waitCmd
-          & stubLoggerT [expectedStackInfo "test-foo-base" SSRollbackFailed ]
-          & mockActionT
-            [ DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSRollbackFailed)
-            , Wait StackUpdateComplete "test-foo-base" :-> ()
-            , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSRollbackFailed)
-            ]
-          & stubExceptT
-
-        runSuccess $ cli config
-          & stubFileSystemT
-            [("base.yaml", rootTemplate)]
-          & stubEnvironmentT []
-          & stubCommandLineT waitCmd
-          & stubLoggerT [expectedStackInfo "test-foo-base" SSRollbackComplete ]
-          & mockActionT
-            [ DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSRollbackInProgress)
-            , Wait StackUpdateComplete "test-foo-base" :-> ()
-            , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSRollbackComplete)
-            ]
-          & stubExceptT
-
-        runSuccess $ cli config
-          & stubFileSystemT
-            [("base.yaml", rootTemplate)]
-          & stubEnvironmentT []
-          & stubCommandLineT waitCmd
-          & stubLoggerT [expectedStackInfo "test-foo-base" SSUpdateComplete ]
-          & mockActionT
-            [ DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSUpdateComplete)
-            , Wait StackUpdateComplete "test-foo-base" :-> ()
-            , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSUpdateComplete)
-            ]
-          & stubExceptT
-
-        runSuccess $ cli config
-          & stubFileSystemT
-            [("base.yaml", rootTemplate)]
-          & stubEnvironmentT []
-          & stubCommandLineT waitCmd
-          & stubLoggerT [expectedStackInfo "test-foo-base" SSUpdateComplete ]
-          & mockActionT
-            [ DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSUpdateCompleteCleanupInProgress)
-            , Wait StackUpdateComplete "test-foo-base" :-> ()
-            , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSUpdateComplete)
-            ]
-          & stubExceptT
-
-        runSuccess $ cli config
-          & stubFileSystemT
-            [("base.yaml", rootTemplate)]
-          & stubEnvironmentT []
-          & stubCommandLineT waitCmd
-          & stubLoggerT [expectedStackInfo "test-foo-base" SSUpdateComplete ]
-          & mockActionT
-            [ DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSUpdateInProgress)
-            , Wait StackUpdateComplete "test-foo-base" :-> ()
-            , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSUpdateComplete)
-            ]
-          & stubExceptT
-
-        runSuccess $ cli config
-          & stubFileSystemT
-            [("base.yaml", rootTemplate)]
-          & stubEnvironmentT []
-          & stubCommandLineT waitCmd
-          & stubLoggerT [expectedStackInfo "test-foo-base" SSUpdateRollbackComplete ]
-          & mockActionT
-            [ DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSUpdateRollbackComplete)
-            , Wait StackUpdateComplete "test-foo-base" :-> ()
-            , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSUpdateRollbackComplete)
-            ]
-          & stubExceptT
-
-        runSuccess $ cli config
-          & stubFileSystemT
-            [("base.yaml", rootTemplate)]
-          & stubEnvironmentT []
-          & stubCommandLineT waitCmd
-          & stubLoggerT [expectedStackInfo "test-foo-base" SSUpdateRollbackComplete ]
-          & mockActionT
-            [ DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSUpdateRollbackCompleteCleanupInProgress)
-            , Wait StackUpdateComplete "test-foo-base" :-> ()
-            , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSUpdateRollbackComplete)
-            ]
-          & stubExceptT
-
-        runSuccess $ cli config
-          & stubFileSystemT
-            [("base.yaml", rootTemplate)]
-          & stubEnvironmentT []
-          & stubCommandLineT waitCmd
-          & stubLoggerT [expectedStackInfo "test-foo-base" SSUpdateRollbackFailed ]
-          & mockActionT
-            [ DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSUpdateRollbackFailed)
-            , Wait StackUpdateComplete "test-foo-base" :-> ()
-            , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSUpdateRollbackFailed)
-            ]
-          & stubExceptT
-
-        runSuccess $ cli config
-          & stubFileSystemT
-            [("base.yaml", rootTemplate)]
-          & stubEnvironmentT []
-          & stubCommandLineT waitCmd
-          & stubLoggerT [expectedStackInfo "test-foo-base" SSUpdateRollbackComplete ]
-          & mockActionT
-            [ DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSUpdateRollbackInProgress)
-            , Wait StackUpdateComplete "test-foo-base" :-> ()
-            , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSUpdateRollbackComplete)
-            ]
-          & stubExceptT
-
-      it "throws an error if stack is waiting for change set review" $
-        runFailure _CliStackNeedsChangeSetReview "test-foo-base" $ cli config
-          & stubFileSystemT [ ("base.yaml", rootTemplate) ]
-          & stubEnvironmentT []
-          & stubCommandLineT waitCmd
-          & stubLoggerT []
-          & mockActionT
-            [ DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSReviewInProgress) ]
-          & stubExceptT
-
-      it "throws an error if stack doesn't exist" $
-        runFailure _CliStackDoesNotExist "test-foo-base" $ cli config
-          & stubFileSystemT
-            [("base.yaml", rootTemplate)]
-          & stubEnvironmentT []
-          & stubCommandLineT waitCmd
-          & stubLoggerT []
-          & mockActionT
-            [ DescribeStack "test-foo-base" :-> Nothing]
-          & stubExceptT
-
     describe "provision" $ do
-      it "fails if the template doesn't exist" $ do
-        let config = deployment "foo" $ do
-              stack_ "base"
-              stack_ "server"
-        runFailure _FileNotFound "server.yaml" $ cli config
-          & stubFileSystemT []
-          & stubEnvironmentT []
-          & stubCommandLineT serverTestArgs
-          & stubLoggerT []
-          & mockActionT []
-          & stubExceptT
 
-      it "fails if the template parameters can't be parsed" $ do
-        let config = deployment "foo" $ stack_ "base"
-            err = "YAML parse exception at line 0, column 8,\nwhile scanning a directive:\nfound unknown directive name"
-        runFailure _CliTemplateDecodeFail err $ cli config
-          & stubFileSystemT [("base.yaml", "%invalid")]
-          & stubEnvironmentT []
-          & stubCommandLineT baseTestArgs
-          & stubLoggerT []
-          & mockActionT []
-          & stubExceptT
 
-      it "fails if user attempts to deploy a stack that doesn't exist in the config" $ do
-        let config = deployment "foo" $ stack_ "base"
-            fakeCliInput = ["provision", "foo", "test"]
-        runFailure _CliStackNotConfigured "foo" $ cli config
-          & stubFileSystemT
-            [("base.yaml", rootTemplate)]
-          & stubEnvironmentT []
-          & stubCommandLineT fakeCliInput
-          & stubLoggerT []
-          & mockActionT []
-          & stubExceptT
-
-      it "fails if parameters required in the template are not supplied" $ do
-        let baseTemplate =
-                rootTemplate
-              <> "  foo:\n"
-              <> "    Type: String\n"
-              <> "  bar:\n"
-              <> "    Type: String\n"
-            config = deployment "foo" $
-              stack_ "base"
-        runFailure _CliMissingRequiredParameters ["foo", "bar"] $ cli config
-          & stubFileSystemT [ ("base.yaml", baseTemplate) ]
-          & stubEnvironmentT []
-          & stubCommandLineT baseTestArgs
-          & stubLoggerT []
-          & mockActionT [DescribeStack "test-foo-base" :-> Nothing]
-          & stubExceptT
 
       context "the configuration does not have environment variables" $ do
         let config = deployment "foo" $ do
@@ -354,18 +68,6 @@ spec =
               stack_ "server"
               stack_ "frontend"
 
-        it "applies a changeset to a stack" $ example $
-          runSuccess $ cli config
-            & stubFileSystemT
-              [("base.yaml", rootTemplate)]
-            & stubEnvironmentT []
-            & stubCommandLineT baseTestArgs
-            & stubLoggerT []
-            & mockActionT
-              [ DescribeStack "test-foo-base" :-> Nothing
-              , ComputeChangeset "test-foo-base" CreateStack rootTemplate rootExpectedParams rootExpectedTags :-> "csid"
-              , RunChangeSet "csid" :-> 200 ]
-            & stubExceptT
 
         it "passes only the outputs from previous stacks that are listed in this template's Parameters" $ do
           let serverTemplate = rootTemplate

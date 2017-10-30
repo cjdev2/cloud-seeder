@@ -1,11 +1,16 @@
 {-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE QuasiQuotes #-}
+{-# LANGUAGE TemplateHaskell #-}
 
 module Network.CloudSeeder.Test.Stubs where
 
 import Control.Monad (unless)
 import Control.Monad.Error.Lens (throwing)
-import Control.Monad.Except (MonadError)
+import Control.Monad.Except (MonadError, ExceptT)
+import Control.Monad.Mock (MockT, WithResult(..), runMockT)
+import Control.Monad.Mock.TH (makeAction, ts)
 import Control.Monad.Reader (ReaderT(..), ask)
+import Control.Monad.State (StateT)
 import Control.Monad.Writer (MonadWriter(..), WriterT(..), mapWriterT)
 import Control.Monad.Trans.Class (MonadTrans(..))
 import Control.Monad.Logger (MonadLogger(..))
@@ -20,9 +25,13 @@ import System.Log.FastLogger (fromLogStr, toLogStr)
 import qualified Data.Text as T
 import qualified Data.Map as M
 
-import Network.CloudSeeder.CommandLine
+import Network.CloudSeeder.CommandLine hiding (Wait, wait)
+import Network.CloudSeeder.DSL
+import Network.CloudSeeder.Error
 import Network.CloudSeeder.Interfaces
 
+--------------------------------------------------------------------------------
+-- STUBS
 --------------------------------------------------------------------------------
 -- Arguments
 
@@ -79,6 +88,11 @@ stubLoggerT expectedLogs (LoggerT x) = do
       This expected -> "  expected: '" <> expected <> "' | actual: NULL "
       That actual -> "  expected: NULL | actual: '" <> actual <> "'"
 
+ignoreLoggerT :: Monad m => LoggerT m a -> m ()
+ignoreLoggerT (LoggerT x) = do
+  _ <- runWriterT x
+  pure ()
+
 instance MonadWriter w m => MonadWriter w (LoggerT m) where
   tell = lift . tell
   listen (LoggerT x) = LoggerT $ flip mapWriterT x $ \y -> do
@@ -122,3 +136,27 @@ stubEnvironmentT fs (EnvironmentT x) = runReaderT x fs
 
 instance Monad m => MonadEnvironment (EnvironmentT m) where
   getEnv x = M.lookup x <$> EnvironmentT ask
+
+--------------------------------------------------------------------------------
+-- MOCKS
+--------------------------------------------------------------------------------
+-- Missiles
+
+class Monad m => MonadMissiles m where
+  launchMissiles :: m ()
+
+  default launchMissiles :: (MonadTrans t, MonadMissiles m', m ~ t m') => m ()
+  launchMissiles = lift launchMissiles
+
+instance MonadMissiles m => MonadMissiles (ExceptT e m)
+instance MonadMissiles m => MonadMissiles (ReaderT r m)
+instance MonadMissiles m => MonadMissiles (StateT s m)
+instance MonadMissiles m => MonadMissiles (FileSystemT m)
+instance MonadMissiles m => MonadMissiles (EnvironmentT m)
+instance MonadMissiles m => MonadMissiles (ArgumentsT m)
+instance MonadMissiles m => MonadMissiles (CreateT m)
+instance MonadMissiles m => MonadMissiles (LoggerT m)
+
+makeAction "CloudAction" [ts| MonadCloud CliError, MonadMissiles |]
+mockActionT :: Monad m => [WithResult CloudAction] -> MockT CloudAction m a -> m a
+mockActionT = runMockT
