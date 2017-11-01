@@ -47,7 +47,7 @@ stubCommandLineT fake (ArgumentsT x) = runReaderT x fake
 instance Monad m => MonadCLI (ArgumentsT m) where
   getArgs = ArgumentsT $ do
     input <- ask
-    return $ consume parseArguments $ take 3 input
+    return $ take 3 input
 
   getOptions pSpecs = ArgumentsT $ do
     input <- ask

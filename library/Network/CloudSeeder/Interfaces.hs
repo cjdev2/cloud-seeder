@@ -6,8 +6,6 @@ module Network.CloudSeeder.Interfaces
   ( MonadCLI(..)
   , getArgs'
   , getOptions'
-  , whenEnv
-  , getEnvArg
 
   , MonadCloud(..)
   , computeChangeset'
@@ -38,7 +36,7 @@ import Prelude hiding (readFile)
 import Control.Exception (throw)
 import Control.Lens (Traversal', (.~), (^.), (^?), (?~), _Just, only, to)
 import Control.Lens.TH (makeClassy, makeClassyPrisms)
-import Control.Monad (void, when)
+import Control.Monad (void)
 import Control.Monad.Base (MonadBase, liftBase)
 import Control.Monad.Catch (MonadCatch, MonadThrow)
 import Control.Monad.Error.Lens (throwing)
@@ -82,8 +80,8 @@ import Network.CloudSeeder.Types
 
 class Monad m => MonadCLI m where
   -- | Returns positional arguments provided to the program while ignoring flags -- separate from getOptions to avoid cyclical dependencies.
-  getArgs :: m CL.Command
-  default getArgs :: (MonadTrans t, MonadCLI m', m ~ t m') => m CL.Command
+  getArgs :: m [String]
+  default getArgs :: (MonadTrans t, MonadCLI m', m ~ t m') => m [String]
   getArgs = lift getArgs
 
   -- | Returns flags provided to the program while ignoring positional arguments -- separate from getArgs to avoid cyclical dependencies.
@@ -91,8 +89,9 @@ class Monad m => MonadCLI m where
   default getOptions :: (MonadTrans t, MonadCLI m', m ~ t m') => S.Set ParameterSpec -> m CL.Options
   getOptions = lift . getOptions
 
-getArgs' :: MonadBase IO m => m CL.Command
-getArgs' = liftBase $ execParser CL.parseArguments
+getArgs' :: MonadBase IO m => m [String]
+getArgs' = liftBase IO.getArgs
+-- getArgs' = liftBase $ execParser CL.parseArguments
 
 getOptions' :: MonadBase IO m => S.Set ParameterSpec -> m CL.Options
 getOptions' = liftBase . execParser . CL.parseOptions
@@ -102,18 +101,6 @@ instance MonadCLI m => MonadCLI (LoggingT m)
 instance MonadCLI m => MonadCLI (ReaderT r m)
 instance MonadCLI m => MonadCLI (StateT s m)
 instance (Monoid s, MonadCLI m) => MonadCLI (WriterT s m)
-
--- DSL helpers
-
-getEnvArg :: MonadCLI m => m T.Text
-getEnvArg = do
-  (CL.ProvisionStack _ env) <- getArgs
-  return env
-
-whenEnv :: MonadCLI m => T.Text -> m () -> m ()
-whenEnv env x = do
-  envToProvision <- getEnvArg
-  when (envToProvision == env) x
 
 --------------------------------------------------------------------------------
 newtype FileSystemError

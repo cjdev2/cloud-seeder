@@ -33,6 +33,7 @@ data CliError
   | CliDuplicateTagValues (M.Map T.Text [T.Text])
   | CliExtraParameterFlags (S.Set T.Text)
   | CliCloudError CloudError
+  | CliParseFailure T.Text
   deriving (Eq, Show)
 
 makeClassy ''CliError
@@ -78,6 +79,8 @@ renderCliError (CliCloudError (CloudErrorInternal msg))
   <> "'. Please submit a bug report to the cloud-seeder project.\n"
 renderCliError (CliCloudError (CloudErrorUser msg))
   = "user error when interacting with AWS: '" <> msg <> "' \n"
+renderCliError (CliParseFailure msg)
+  = msg
 
 renderKeysToManyVals :: M.Map T.Text [T.Text] -> T.Text
 renderKeysToManyVals xs = T.unlines $ map renderKeyToVals (M.toAscList xs)

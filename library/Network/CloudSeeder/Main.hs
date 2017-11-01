@@ -27,6 +27,7 @@ import Network.CloudSeeder.DSL
 import Network.CloudSeeder.Error
 import Network.CloudSeeder.Interfaces
 import Network.CloudSeeder.Provision
+import Network.CloudSeeder.Shared
 import Network.CloudSeeder.Wait
 
 --------------------------------------------------------------------------------
@@ -71,7 +72,7 @@ cli
   :: (AsCliError e, MonadCLI m, MonadCloud e m, MonadFileSystem e m, MonadEnvironment m, MonadLogger m)
   => m (DeploymentConfiguration m) -> m ()
 cli mConfig = do
-  cmd <- getArgs
+  cmd <- parseArgs =<< getArgs
   case cmd of
     CL.Wait nameToWaitFor env -> waitCommand mConfig nameToWaitFor env
     CL.ProvisionStack nameToProvision env -> provisionCommand mConfig nameToProvision env

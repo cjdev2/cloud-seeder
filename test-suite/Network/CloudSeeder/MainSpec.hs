@@ -14,6 +14,7 @@ import Network.CloudSeeder.DSL
 import Network.CloudSeeder.Error
 import Network.CloudSeeder.Interfaces
 import Network.CloudSeeder.Main
+import Network.CloudSeeder.Shared
 import Network.CloudSeeder.Types
 import Network.CloudSeeder.Test.Stubs
 
