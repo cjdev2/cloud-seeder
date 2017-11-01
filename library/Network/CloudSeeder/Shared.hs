@@ -15,6 +15,7 @@ import Control.Monad.Error.Lens (throwing)
 import Control.Monad.Except (MonadError)
 import Control.Monad.Logger (MonadLogger, logInfo)
 import Data.Semigroup ((<>))
+import Network.AWS.CloudFormation (StackStatus(..))
 import Options.Applicative (ParserPrefs(..), ParserResult(..), execParserPure, renderFailure)
 
 import Network.CloudSeeder.Error
@@ -23,6 +24,7 @@ import Network.CloudSeeder.Types
 
 import qualified Network.CloudSeeder.CommandLine as CL
 import qualified Data.Text as T
+import qualified Data.Map as M
 
 parseArgs :: (AsCliError e, MonadError e m) => [String] -> m CL.Command
 parseArgs args = do
@@ -57,9 +59,32 @@ logStack stackInfo = $(logInfo) (render stackInfo)
     render s = T.unlines
       [ "Stack Info:"
       , "  name: " <> s^.name
-      , "  status: " <> T.pack (show (s^.stackStatus))
-      , "  outputs: " <> T.pack (show (s^.outputs))
+      , "  status: " <> renderStatus (s^.stackStatus)
+      , "  outputs: " <> "\n" <> renderOutputs (s^.outputs)
       ]
+    renderStatus :: StackStatus -> T.Text
+    renderStatus s = case s of
+        SSCreateComplete -> "StackCreateComplete"
+        SSCreateFailed -> "StackCreateComplete"
+        SSCreateInProgress -> "StackCreateComplete"
+        SSDeleteComplete -> "StackDeleteComplete"
+        SSDeleteFailed -> "StackDeleteComplete"
+        SSDeleteInProgress -> "StackDeleteComplete"
+        SSRollbackComplete -> "StackUpdateComplete"
+        SSRollbackFailed -> "StackUpdateComplete"
+        SSRollbackInProgress -> "StackUpdateComplete"
+        SSUpdateComplete -> "StackUpdateComplete"
+        SSUpdateCompleteCleanupInProgress -> "StackUpdateComplete"
+        SSUpdateInProgress -> "StackUpdateComplete"
+        SSUpdateRollbackComplete -> "StackUpdateComplete"
+        SSUpdateRollbackCompleteCleanupInProgress -> "StackUpdateComplete"
+        SSUpdateRollbackFailed -> "StackUpdateComplete"
+        SSUpdateRollbackInProgress -> "StackUpdateComplete"
+        SSReviewInProgress -> "ReviewInProgress"
+    renderOutputs :: M.Map T.Text T.Text -> T.Text
+    renderOutputs os = T.unlines (renderOutput <$> M.toList os)
+    renderOutput :: (T.Text, T.Text) -> T.Text
+    renderOutput (k,v) = "    " <> k <> ": " <> v
 
 getStack :: (AsCliError e, MonadCloud e m) => StackName -> m Stack
 getStack stackName = do

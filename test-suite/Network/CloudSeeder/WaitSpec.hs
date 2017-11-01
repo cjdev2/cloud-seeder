@@ -39,12 +39,12 @@ spec =
           ["Env"]
           (Just "sId")
 
-        expectedStackInfo :: B.ByteString -> StackStatus -> B.ByteString
-        expectedStackInfo stackName status = B.unlines
+        expectedStackLog :: B.ByteString -> B.ByteString -> B.ByteString
+        expectedStackLog stackName status = B.unlines
           [ "Stack Info:"
           , "  name: " <> stackName
-          , "  status: " <> B.pack (show status)
-          , "  outputs: fromList []"
+          , "  status: " <> status
+          , "  outputs: \n"
           ]
 
         config = DeploymentConfiguration "foo" [] [StackConfiguration "base" [] [] False []] []
@@ -53,7 +53,7 @@ spec =
     describe "waitCommand" $ do
       it "waits on a stack, then logs info about it" $
         runSuccess $ waitCommand mConfig "base" "test"
-          & stubLoggerT [expectedStackInfo "test-foo-base" SSCreateComplete]
+          & stubLoggerT [expectedStackLog "test-foo-base" "StackCreateComplete"]
           & mockActionT
             [ DescribeStack (StackName testFooBase):-> Just (expectedStack testFooBase SSCreateInProgress)
             , Wait StackCreateComplete (StackName testFooBase) :-> ()
