@@ -19,13 +19,11 @@ import Data.ByteString (ByteString)
 import Data.ByteString.Char8 (unpack)
 import Data.Semigroup ((<>))
 import Data.These (These(..))
-import Options.Applicative (ParserInfo(..), ParserResult(..), execParserPure, defaultPrefs, renderFailure)
 import System.Log.FastLogger (fromLogStr, toLogStr)
 
 import qualified Data.Text as T
 import qualified Data.Map as M
 
-import Network.CloudSeeder.CommandLine hiding (Wait, wait)
 import Network.CloudSeeder.DSL
 import Network.CloudSeeder.Error
 import Network.CloudSeeder.Interfaces
@@ -44,33 +42,15 @@ newtype ArgumentsT m a = ArgumentsT (ReaderT [String] m a)
 stubCommandLineT :: [String] -> ArgumentsT m a -> m a
 stubCommandLineT fake (ArgumentsT x) = runReaderT x fake
 
-instance Monad m => MonadCLI (ArgumentsT m) where
-  getArgs = ArgumentsT $ do
-    input <- ask
-    return $ take 3 input
-
-  getOptions pSpecs = ArgumentsT $ do
-    input <- ask
-    return $ consume (parseOptions pSpecs) input
-
-consume :: ParserInfo a -> [String] -> a
-consume p x = case parserErrorOrResult of
-    Right result -> result
-    Left err -> error err
-  where parserErrorOrResult = parserResult $ execParserPure defaultPrefs p x
-
-parserResult :: ParserResult a -> Either String a
-parserResult (Success a) = return a
-parserResult (Failure failure) = Left msg
-  where (msg, _) = renderFailure failure "stub"
-parserResult _ = error "parserResult: completion encountered"
+instance Monad m => MonadCli (ArgumentsT m) where
+  getArgs = ArgumentsT ask
 
 --------------------------------------------------------------------------------
 -- Logger
 
 newtype LoggerT m a = LoggerT (WriterT [ByteString] m a)
   deriving ( Functor, Applicative, Monad, MonadTrans, MonadError e
-           , MonadCLI, MonadFileSystem e, MonadCloud e, MonadEnvironment )
+           , MonadCli, MonadFileSystem e, MonadCloud e, MonadEnvironment )
 
 -- | Runs a computation that may emit log messages, returning the result of the
 -- computation.
@@ -110,7 +90,7 @@ instance Monad m => MonadLogger (LoggerT m) where
 
 newtype FileSystemT m a = FileSystemT (ReaderT [(T.Text, T.Text)] m a)
   deriving ( Functor, Applicative, Monad, MonadTrans, MonadError e
-           , MonadWriter w , MonadCLI, MonadLogger, MonadCloud e
+           , MonadWriter w , MonadCli, MonadLogger, MonadCloud e
            , MonadEnvironment )
 
 -- | Runs a computation that may interact with the file system, given a mapping
@@ -128,7 +108,7 @@ instance (AsFileSystemError e, MonadError e m) => MonadFileSystem e (FileSystemT
 
 newtype EnvironmentT m a = EnvironmentT (ReaderT (M.Map T.Text T.Text) m a)
   deriving ( Functor, Applicative, Monad, MonadTrans, MonadError e
-           , MonadWriter w, MonadCLI, MonadLogger, MonadFileSystem e
+           , MonadWriter w, MonadCli, MonadLogger, MonadFileSystem e
            , MonadCloud e )
 
 stubEnvironmentT :: M.Map T.Text T.Text -> EnvironmentT m a -> m a

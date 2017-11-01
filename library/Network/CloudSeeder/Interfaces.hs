@@ -3,9 +3,8 @@
 {-# LANGUAGE UndecidableInstances #-}
 
 module Network.CloudSeeder.Interfaces
-  ( MonadCLI(..)
+  ( MonadCli(..)
   , getArgs'
-  , getOptions'
 
   , MonadCloud(..)
   , computeChangeset'
@@ -57,7 +56,6 @@ import Data.UUID (toText)
 import Data.UUID.V4 (nextRandom)
 import GHC.IO.Exception (IOException(..), IOErrorType(..))
 import Network.AWS (AsError(..), ErrorMessage(..), HasEnv(..), serviceMessage)
-import Options.Applicative (execParser)
 
 import qualified Control.Exception.Lens as IO
 import qualified Data.ByteString as B
@@ -72,35 +70,26 @@ import qualified Network.AWS.KMS as KMS
 import qualified Network.AWS.S3 as S3
 import qualified System.Environment as IO
 
-import qualified Network.CloudSeeder.CommandLine as CL
 import Network.CloudSeeder.Types
 
 --------------------------------------------------------------------------------
 -- | A class of monads that can access command-line arguments.
 
-class Monad m => MonadCLI m where
+class Monad m => MonadCli m where
   -- | Returns positional arguments provided to the program while ignoring flags -- separate from getOptions to avoid cyclical dependencies.
   getArgs :: m [String]
-  default getArgs :: (MonadTrans t, MonadCLI m', m ~ t m') => m [String]
+  default getArgs :: (MonadTrans t, MonadCli m', m ~ t m') => m [String]
   getArgs = lift getArgs
-
-  -- | Returns flags provided to the program while ignoring positional arguments -- separate from getArgs to avoid cyclical dependencies.
-  getOptions :: S.Set ParameterSpec -> m CL.Options
-  default getOptions :: (MonadTrans t, MonadCLI m', m ~ t m') => S.Set ParameterSpec -> m CL.Options
-  getOptions = lift . getOptions
 
 getArgs' :: MonadBase IO m => m [String]
 getArgs' = liftBase IO.getArgs
 -- getArgs' = liftBase $ execParser CL.parseArguments
 
-getOptions' :: MonadBase IO m => S.Set ParameterSpec -> m CL.Options
-getOptions' = liftBase . execParser . CL.parseOptions
-
-instance MonadCLI m => MonadCLI (ExceptT e m)
-instance MonadCLI m => MonadCLI (LoggingT m)
-instance MonadCLI m => MonadCLI (ReaderT r m)
-instance MonadCLI m => MonadCLI (StateT s m)
-instance (Monoid s, MonadCLI m) => MonadCLI (WriterT s m)
+instance MonadCli m => MonadCli (ExceptT e m)
+instance MonadCli m => MonadCli (LoggingT m)
+instance MonadCli m => MonadCli (ReaderT r m)
+instance MonadCli m => MonadCli (StateT s m)
+instance (Monoid s, MonadCli m) => MonadCli (WriterT s m)
 
 --------------------------------------------------------------------------------
 newtype FileSystemError

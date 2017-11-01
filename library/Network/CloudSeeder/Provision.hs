@@ -34,9 +34,9 @@ import Network.CloudSeeder.Template
 import Network.CloudSeeder.Types
 import Network.CloudSeeder.Shared
 
-provisionCommand :: (AsCliError e, MonadCLI m, MonadCloud e m, MonadFileSystem e m, MonadEnvironment m, MonadLogger m)
-  => m (DeploymentConfiguration m) -> T.Text -> T.Text -> m ()
-provisionCommand mConfig nameToProvision env = do
+provisionCommand :: (AsCliError e, MonadCloud e m, MonadFileSystem e m, MonadEnvironment m, MonadLogger m)
+  => m (DeploymentConfiguration m) -> T.Text -> T.Text -> [String] -> m ()
+provisionCommand mConfig nameToProvision env input = do
   -- $(logInfo) "hello"
   config <- mConfig
   stackToProvision <- getStackToProvision config nameToProvision
@@ -54,7 +54,7 @@ provisionCommand mConfig nameToProvision env = do
   newStackOrPreviousValues <- getStackProvisionType fullStackName
   allTags <- getTags config stackToProvision env appName
 
-  (waitOption, allParams) <- getParameters newStackOrPreviousValues config stackToProvision paramSources paramSpecs dependencies env appName
+  (waitOption, allParams) <- getParameters newStackOrPreviousValues config stackToProvision paramSources paramSpecs dependencies env appName input
 
   csId <- computeChangeset fullStackName newStackOrPreviousValues templateBody allParams allTags
   _ <- runChangeSet csId
@@ -102,7 +102,7 @@ getTags config stackToProvision env appName =
 -- | Fetches parameter values for all param sources, handling potential errors
 -- and misconfigurations.
 getParameters
-  :: forall e m. (AsCliError e, MonadError e m, MonadCLI m, MonadEnvironment m, MonadCloud e m)
+  :: forall e m. (AsCliError e, MonadError e m, MonadEnvironment m, MonadCloud e m)
   => ProvisionType
   -> DeploymentConfiguration m
   -> StackConfiguration m
@@ -111,8 +111,9 @@ getParameters
   -> [StackConfiguration m] -- ^ stack dependencies
   -> T.Text -- ^ name of environment being deployed to
   -> T.Text -- ^ name of application being deployed
+  -> [String] -- ^ command line input
   -> m (Bool, M.Map T.Text ParameterValue)
-getParameters provisionType config stackToProvision paramSources allParamSpecs dependencies env appName = do
+getParameters provisionType config stackToProvision paramSources allParamSpecs dependencies env appName input = do
     let paramSpecs = setRequiredSpecsWithPreviousValuesToOptional allParamSpecs
         constants  = paramSources ^..* folded.aside _Constant.to (second Value)
     (waitOption, flags' :: S.Set (T.Text, ParameterValue)) <- options paramSpecs
@@ -156,7 +157,7 @@ getParameters provisionType config stackToProvision paramSources allParamSpecs d
 
       unless (S.null paramFlagsNotInTemplate) $
         throwing _CliExtraParameterFlags paramFlagsNotInTemplate
-      options' <- getOptions flaggedParamSpecs
+      options' <- parseOpts flaggedParamSpecs input
       let waitOption = options' ^. CL.wait
           params = options' ^. CL.parameters
       pure (waitOption, S.fromList $ M.toList params)

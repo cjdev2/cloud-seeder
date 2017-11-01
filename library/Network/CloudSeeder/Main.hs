@@ -46,9 +46,8 @@ instance MonadBaseControl IO AppM where
 instance MonadFileSystem CliError AppM where
   readFile = readFile'
 
-instance MonadCLI AppM where
+instance MonadCli AppM where
   getArgs = getArgs'
-  getOptions = getOptions'
 
 instance MonadCloud CliError AppM where
   computeChangeset = computeChangeset'
@@ -69,13 +68,14 @@ runAppM (AppM x) = do
 -- Logic
 
 cli
-  :: (AsCliError e, MonadCLI m, MonadCloud e m, MonadFileSystem e m, MonadEnvironment m, MonadLogger m)
+  :: (AsCliError e, MonadCli m, MonadCloud e m, MonadFileSystem e m, MonadEnvironment m, MonadLogger m)
   => m (DeploymentConfiguration m) -> m ()
 cli mConfig = do
-  cmd <- parseArgs =<< getArgs
+  input <- getArgs
+  cmd <- parseArgs input
   case cmd of
     CL.Wait nameToWaitFor env -> waitCommand mConfig nameToWaitFor env
-    CL.ProvisionStack nameToProvision env -> provisionCommand mConfig nameToProvision env
+    CL.ProvisionStack nameToProvision env -> provisionCommand mConfig nameToProvision env input
 
 cliIO :: AppM (DeploymentConfiguration AppM) -> IO ()
 cliIO mConfig = runAppM $ cli mConfig

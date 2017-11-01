@@ -57,29 +57,26 @@ spec =
 
     describe "provisionCommand" $ do
       it "fails if the template doesn't exist" $
-        runFailure _FileNotFound "base.yaml" $ provisionCommand mConfig "base" "test"
+        runFailure _FileNotFound "base.yaml" $ provisionCommand mConfig "base" "test" []
           & stubFileSystemT []
           & stubEnvironmentT []
-          & stubCommandLineT []
           & ignoreLoggerT
           & mockActionT []
           & stubExceptT
 
       it "fails if the template parameters can't be parsed" $ do
         let err = "YAML parse exception at line 0, column 8,\nwhile scanning a directive:\nfound unknown directive name"
-        runFailure _CliTemplateDecodeFail err $ provisionCommand mConfig "base" "test"
+        runFailure _CliTemplateDecodeFail err $ provisionCommand mConfig "base" "test" []
           & stubFileSystemT [("base.yaml", "%invalid")]
           & stubEnvironmentT []
-          & stubCommandLineT []
           & ignoreLoggerT
           & mockActionT []
           & stubExceptT
 
       it "fails if user attempts to deploy a stack that doesn't exist in the config" $
-        runFailure _CliStackNotConfigured "snipe" $ provisionCommand mConfig "snipe" "test"
+        runFailure _CliStackNotConfigured "snipe" $ provisionCommand mConfig "snipe" "test" []
           & stubFileSystemT []
           & stubEnvironmentT []
-          & stubCommandLineT []
           & ignoreLoggerT
           & mockActionT []
           & stubExceptT
@@ -91,21 +88,19 @@ spec =
               <> "    Type: String\n"
               <> "  bar:\n"
               <> "    Type: String\n"
-        runFailure _CliMissingRequiredParameters ["foo", "bar"] $ provisionCommand mConfig "base" "test"
-          & stubFileSystemT [ ("base.yaml", baseTemplate) ]
+        runFailure _CliMissingRequiredParameters ["foo", "bar"] $ provisionCommand mConfig "base" "test" ["provision", "test", "base"]
+          & stubFileSystemT [("base.yaml", baseTemplate)]
           & stubEnvironmentT []
-          & stubCommandLineT ["provision", "test", "base"]
           & ignoreLoggerT
           & mockActionT [ DescribeStack "test-foo-base" :-> Nothing ]
           & stubExceptT
 
       context "the configuration does not have environment variables" $
         it "applies a changeset to a stack" $ example $
-          runSuccess $ provisionCommand mConfig "base" "test"
+          runSuccess $ provisionCommand mConfig "base" "test" ["provision", "test", "base"]
             & stubFileSystemT
               [("base.yaml", rootTemplate)]
             & stubEnvironmentT []
-            & stubCommandLineT ["provision", "test", "base"]
             & ignoreLoggerT
             & mockActionT
               [ DescribeStack "test-foo-base" :-> Nothing

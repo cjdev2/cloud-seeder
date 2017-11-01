@@ -2,6 +2,7 @@
 
 module Network.CloudSeeder.Shared
   ( parseArgs
+  , parseOpts
   , getEnvArg
   , whenEnv
   , logStack
@@ -25,6 +26,22 @@ import Network.CloudSeeder.Types
 import qualified Network.CloudSeeder.CommandLine as CL
 import qualified Data.Text as T
 import qualified Data.Map as M
+import qualified Data.Set as S
+
+parseOpts :: (AsCliError e, MonadError e m) => S.Set ParameterSpec -> [String] -> m CL.Options
+parseOpts pSpecs opts = do
+  let prefs = ParserPrefs
+        { prefMultiSuffix = ""
+        , prefDisambiguate = True
+        , prefShowHelpOnError = True
+        , prefShowHelpOnEmpty = True
+        , prefBacktrack = False
+        , prefColumns = 80
+        }
+  case execParserPure prefs (CL.parseOptions pSpecs) opts of
+    Success a -> pure a
+    Failure f -> throwing _CliParseFailure (T.pack . fst $ renderFailure f "cloud-seeder")
+    CompletionInvoked _ -> error "internal error--bash completion invoked; bash completions not supported"
 
 parseArgs :: (AsCliError e, MonadError e m) => [String] -> m CL.Command
 parseArgs args = do
@@ -41,13 +58,13 @@ parseArgs args = do
     Failure f -> throwing _CliParseFailure (T.pack . fst $ renderFailure f "cloud-seeder")
     CompletionInvoked _ -> error "internal error--bash completion invoked; bash completions not supported"
 
-getEnvArg :: (AsCliError e, MonadError e m, MonadCLI m) => m T.Text
+getEnvArg :: (AsCliError e, MonadError e m, MonadCli m) => m T.Text
 getEnvArg = do
   args <- getArgs
   (CL.ProvisionStack _ env) <- parseArgs args
   pure env
 
-whenEnv :: (AsCliError e, MonadError e m, MonadCLI m) => T.Text -> m () -> m ()
+whenEnv :: (AsCliError e, MonadError e m, MonadCli m) => T.Text -> m () -> m ()
 whenEnv env x = do
   envToProvision <- getEnvArg
   when (envToProvision == env) x
