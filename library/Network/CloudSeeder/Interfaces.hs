@@ -76,7 +76,6 @@ import Network.CloudSeeder.Types
 -- | A class of monads that can access command-line arguments.
 
 class Monad m => MonadCli m where
-  -- | Returns positional arguments provided to the program while ignoring flags -- separate from getOptions to avoid cyclical dependencies.
   getArgs :: m [String]
   default getArgs :: (MonadTrans t, MonadCli m', m ~ t m') => m [String]
   getArgs = lift getArgs
@@ -150,7 +149,7 @@ data Waiter
 class (AsCloudError e, MonadError e m) => MonadCloud e m | m -> e where
   computeChangeset :: StackName -> ProvisionType -> T.Text -> M.Map T.Text ParameterValue -> M.Map T.Text T.Text -> m T.Text
   describeStack :: StackName -> m (Maybe Stack)
-  runChangeSet :: T.Text -> m Int
+  runChangeSet :: T.Text -> m ()
   encrypt :: T.Text -> T.Text -> m B.ByteString
   upload :: T.Text -> T.Text -> B.ByteString -> m ()
   generateSecret :: Int -> CharType -> m T.Text
@@ -162,7 +161,7 @@ class (AsCloudError e, MonadError e m) => MonadCloud e m | m -> e where
   default describeStack :: (MonadTrans t, MonadCloud e m', m ~ t m') => StackName -> m (Maybe Stack)
   describeStack = lift . describeStack
 
-  default runChangeSet :: (MonadTrans t, MonadCloud e m', m ~ t m') => T.Text -> m Int
+  default runChangeSet :: (MonadTrans t, MonadCloud e m', m ~ t m') => T.Text -> m ()
   runChangeSet = lift . runChangeSet
 
   default encrypt :: (MonadTrans t, MonadCloud e m', m ~ t m') => T.Text -> T.Text -> m B.ByteString
@@ -243,7 +242,7 @@ describeStack' (StackName stackName) = do
       (Nothing, _) -> throwing _CloudErrorInternal "stack output key was missing"
       (_, Nothing) -> throwing _CloudErrorInternal "stack output value was missing"
 
-runChangeSet' :: MonadCloudIO r e m => T.Text -> m Int
+runChangeSet' :: MonadCloudIO r e m => T.Text -> m ()
 runChangeSet' csId = do
     env <- ask
     r <- runResourceT . runAWST env $ do
@@ -251,7 +250,7 @@ runChangeSet' csId = do
       send (CF.executeChangeSet csId)
     let statusCode = r ^. CF.ecsrsResponseStatus
     case statusCode of
-      200 -> pure statusCode
+      200 -> pure ()
       _ -> throwing _CloudErrorInternal ("executeChangeSet returned invalid response " <> T.pack (show statusCode) <> " for changeset id " <> csId <> ". This should never happen--please submit an issue to the cloud-seeder repo.")
 
 wait' :: MonadCloudIO r e m => Waiter -> StackName -> m ()

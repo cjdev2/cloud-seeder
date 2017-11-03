@@ -73,7 +73,7 @@ spec =
                   [("Env", Value "prod"), ("baz", Value "qux"), ("foo", Value "bar")]
                   expectedTags
                   :-> "csid"
-              , RunChangeSet "csid" :-> 200
+              , RunChangeSet "csid" :-> ()
               , DescribeStack "prod-foo-base" :-> Just (expectedStack "prod-foo-base" SSCreateInProgress)
               , Wait StackCreateComplete (StackName "prod-foo-base") :-> ()
               , DescribeStack "prod-foo-base" :-> Just (expectedStack "prod-foo-base" SSCreateComplete)
@@ -96,7 +96,7 @@ spec =
                   ([("foo", Value "bar")] <> rootExpectedParams)
                   rootExpectedTags
                   :-> "csid"
-              , RunChangeSet "csid" :-> 200
+              , RunChangeSet "csid" :-> ()
               , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSCreateInProgress)
               , Wait StackCreateComplete (StackName "test-foo-base") :-> ()
               , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSCreateComplete) ]
@@ -126,7 +126,7 @@ spec =
                     rootExpectedParams
                     rootExpectedTags
                     :-> "csid"
-                , RunChangeSet "csid" :-> 200
+                , RunChangeSet "csid" :-> ()
                 , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSCreateInProgress)
                 , Wait StackCreateComplete (StackName "test-foo-base") :-> ()
                 , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSCreateComplete) ]
@@ -159,7 +159,7 @@ spec =
                         (rootExpectedParams <> [("bucketName", Value "the-best-bucket")])
                         rootExpectedTags
                         :-> "csid"
-                    , RunChangeSet "csid" :-> 200
+                    , RunChangeSet "csid" :-> ()
                     , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSCreateInProgress)
                     , Wait StackCreateComplete (StackName "test-foo-base") :-> ()
                     , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSCreateComplete) ]
@@ -191,7 +191,7 @@ spec =
                         (rootExpectedParams <> [("bucketName", Value "the-best-bucket")])
                         rootExpectedTags
                         :-> "csid"
-                    , RunChangeSet "csid" :-> 200
+                    , RunChangeSet "csid" :-> ()
                     , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSCreateInProgress)
                     , Wait StackCreateComplete (StackName "test-foo-base") :-> ()
                     , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSCreateComplete) ]
@@ -216,7 +216,7 @@ spec =
                     rootExpectedParams
                     rootExpectedTags
                     :-> "csid"
-                , RunChangeSet "csid" :-> 200
+                , RunChangeSet "csid" :-> ()
                 , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSCreateInProgress)
                 , Wait StackCreateComplete (StackName "test-foo-base") :-> ()
                 , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSCreateComplete) ]

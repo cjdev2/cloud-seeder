@@ -125,7 +125,7 @@ spec =
             & mockActionT
               [ DescribeStack "test-foo-base" :-> Nothing
               , ComputeChangeset "test-foo-base" CreateStack rootTemplate rootExpectedParams rootExpectedTags :-> "csid"
-              , RunChangeSet "csid" :-> 200
+              , RunChangeSet "csid" :-> ()
               , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSCreateInProgress)
               , Wait StackCreateComplete (StackName "test-foo-base") :-> ()
               , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSCreateComplete) ]
@@ -149,7 +149,7 @@ spec =
             & mockActionT
               [ DescribeStack "test-foo-base" :-> Nothing
               , ComputeChangeset "test-foo-base" CreateStack rootTemplate rootExpectedParams rootExpectedTags :-> "csid"
-              , RunChangeSet "csid" :-> 200
+              , RunChangeSet "csid" :-> ()
               , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSCreateInProgress)
               , Wait StackCreateComplete (StackName "test-foo-base") :-> ()
               , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSCreateComplete) ]
@@ -181,7 +181,7 @@ spec =
                   (rootExpectedParams <> [("bar", Value "qux"), ("foo", Value "baz")])
                   rootExpectedTags
                   :-> "csid"
-              , RunChangeSet "csid" :-> 200
+              , RunChangeSet "csid" :-> ()
               , DescribeStack "test-foo-server" :-> Just (expectedStack "test-foo-server" SSCreateInProgress)
               , Wait StackCreateComplete (StackName "test-foo-server") :-> ()
               , DescribeStack "test-foo-server" :-> Just (expectedStack "test-foo-server" SSCreateComplete) ]
@@ -207,7 +207,7 @@ spec =
                   (rootExpectedParams <> [("foo", Value "baz")])
                   rootExpectedTags
                   :-> "csid"
-              , RunChangeSet "csid" :-> 200
+              , RunChangeSet "csid" :-> ()
               , DescribeStack "test-foo-frontend" :-> Just (expectedStack "test-foo-frontend" SSCreateInProgress)
               , Wait StackCreateComplete (StackName "test-foo-frontend") :-> ()
               , DescribeStack "test-foo-frontend" :-> Just (expectedStack "test-foo-frontend" SSCreateComplete) ]
@@ -275,7 +275,7 @@ spec =
             & mockActionT
               [ DescribeStack "test-foo-base" :-> Nothing
               , ComputeChangeset "test-foo-base" CreateStack template expectedParams rootExpectedTags :-> "csid"
-              , RunChangeSet "csid" :-> 200
+              , RunChangeSet "csid" :-> ()
               , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSCreateInProgress)
               , Wait StackCreateComplete (StackName "test-foo-base") :-> ()
               , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSCreateComplete) ]
@@ -339,7 +339,7 @@ spec =
                   expectedBaseParams
                   rootExpectedTags
                   :-> "csid"
-              , RunChangeSet "csid" :-> 200
+              , RunChangeSet "csid" :-> ()
               , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSCreateInProgress)
               , Wait StackCreateComplete (StackName "test-foo-base") :-> ()
               , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSCreateComplete) ]
@@ -368,7 +368,7 @@ spec =
                   expectedServerParams
                   rootExpectedTags
                   :-> "csid"
-              , RunChangeSet "csid" :-> 200
+              , RunChangeSet "csid" :-> ()
               , DescribeStack "test-foo-server" :-> Just (expectedStack "test-foo-server" SSCreateInProgress)
               , Wait StackCreateComplete (StackName "test-foo-server") :-> ()
               , DescribeStack "test-foo-server" :-> Just (expectedStack "test-foo-server" SSCreateComplete) ]
@@ -400,7 +400,7 @@ spec =
                   rootExpectedParams
                   expectedTags
                   :-> "csid"
-              , RunChangeSet "csid" :-> 200
+              , RunChangeSet "csid" :-> ()
               , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSCreateInProgress)
               , Wait StackCreateComplete (StackName "test-foo-base") :-> ()
               , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSCreateComplete) ]
@@ -439,7 +439,7 @@ spec =
                   rootExpectedParams
                   expectedGlobalTags
                   :-> "csid"
-              , RunChangeSet "csid" :-> 200
+              , RunChangeSet "csid" :-> ()
               , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSCreateInProgress)
               , Wait StackCreateComplete (StackName "test-foo-base") :-> ()
               , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSCreateComplete) ]
@@ -461,7 +461,7 @@ spec =
                   rootExpectedParams
                   expectedServerTags
                   :-> "csid"
-              , RunChangeSet "csid" :-> 200
+              , RunChangeSet "csid" :-> ()
               , DescribeStack "test-foo-server" :-> Just (expectedStack "test-foo-server" SSCreateInProgress)
               , Wait StackCreateComplete (StackName "test-foo-server") :-> ()
               , DescribeStack "test-foo-server" :-> Just (expectedStack "test-foo-server" SSCreateComplete) ]
@@ -495,7 +495,7 @@ spec =
                   (rootExpectedParams <> [("baz", Value "zab")])
                   rootExpectedTags
                   :-> "csid"
-              , RunChangeSet "csid" :-> 200
+              , RunChangeSet "csid" :-> ()
               , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSCreateInProgress)
               , Wait StackCreateComplete (StackName "test-foo-base") :-> ()
               , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSCreateComplete) ]
@@ -517,7 +517,7 @@ spec =
                   (rootExpectedParams <> [("baz", Value "prod")])
                   rootExpectedTags
                   :-> "csid"
-              , RunChangeSet "csid" :-> 200
+              , RunChangeSet "csid" :-> ()
               , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSCreateInProgress)
               , Wait StackCreateComplete (StackName "test-foo-base") :-> ()
               , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSCreateComplete) ]
@@ -564,7 +564,7 @@ spec =
                   (rootExpectedParams <> [("baz", UsePreviousValue)])
                   rootExpectedTags
                   :-> "csid"
-              , RunChangeSet "csid" :-> 200
+              , RunChangeSet "csid" :-> ()
               , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSCreateInProgress)
               , Wait StackCreateComplete (StackName "test-foo-base") :-> ()
               , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSCreateComplete) ]
@@ -592,7 +592,7 @@ spec =
                   [("Env", Value "global")]
                   [("cj:application", "foo"), ("cj:environment", "global")]
                   :-> "csid"
-              , RunChangeSet "csid" :-> 200
+              , RunChangeSet "csid" :-> ()
               , DescribeStack "global-foo-repo" :-> Just (expectedStack "global-foo-repo" SSCreateInProgress)
               , Wait StackCreateComplete (StackName "global-foo-repo") :-> ()
               , DescribeStack "global-foo-repo" :-> Just (expectedStack "global-foo-repo" SSCreateComplete) ]
@@ -653,7 +653,7 @@ spec =
                   rootExpectedParams
                   rootExpectedTags
                   :-> "csid"
-              , RunChangeSet "csid" :-> 200
+              , RunChangeSet "csid" :-> ()
               , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSCreateInProgress)
               , Wait StackCreateComplete (StackName "test-foo-base") :-> ()
               , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSCreateComplete) ]
@@ -679,5 +679,5 @@ spec =
                   rootExpectedParams
                   rootExpectedTags
                   :-> "csid"
-              , RunChangeSet "csid" :-> 200 ]
+              , RunChangeSet "csid" :-> () ]
             & stubExceptT
