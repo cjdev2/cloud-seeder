@@ -35,7 +35,7 @@ module Network.CloudSeeder.CommandLine
     ( Command(..)
     , Options(..)
     , HasParameters(..)
-    , HasWait(..)
+    , HasDoNotWait(..)
     , ParameterSpec(..)
     , parseArguments
     , parseOptions
@@ -60,7 +60,7 @@ data Command
 
 data Options = Options
   { _optionsParameters :: M.Map T.Text ParameterValue
-  , _optionsWait :: Bool
+  , _optionsDoNotWait :: Bool
   } deriving (Eq, Show)
 makeFields ''Options
 
@@ -133,7 +133,7 @@ provision phase = subparser
               keyStr = T.unpack key
           val <- parameterValueOption (long keyStr <> metavar keyStr <> defaultMod spec)
           pure (key, val)
-        waitOption = switch (long "wait" <> short 'w')
+        waitOption = switch (long "no-wait" <> short 'n')
 
         defaultMod :: ParameterSpec -> Mod OptionFields ParameterValue
         defaultMod (Optional _ x) = value x

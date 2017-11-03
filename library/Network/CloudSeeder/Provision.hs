@@ -1,5 +1,3 @@
-{-# LANGUAGE TemplateHaskell #-}
-
 module Network.CloudSeeder.Provision
   ( provisionCommand
   ) where
@@ -10,7 +8,7 @@ import Control.Lens (Getting, Prism', (^.), (^..), (^?), _1, _2, _Wrapped, anyOf
 import Control.Monad (unless, when)
 import Control.Monad.Error.Lens (throwing)
 import Control.Monad.Except (MonadError(..), runExceptT)
-import Control.Monad.Logger (MonadLogger, logInfo)
+import Control.Monad.Logger (MonadLogger)
 import Control.Monad.Reader (runReaderT)
 import Control.Monad.State (execStateT)
 import Data.Coerce (coerce)
@@ -37,7 +35,6 @@ import Network.CloudSeeder.Shared
 provisionCommand :: (AsCliError e, MonadCloud e m, MonadFileSystem e m, MonadEnvironment m, MonadLogger m)
   => m (DeploymentConfiguration m) -> T.Text -> T.Text -> [String] -> m ()
 provisionCommand mConfig nameToProvision env input = do
-  -- $(logInfo) "hello"
   config <- mConfig
   stackToProvision <- getStackToProvision config nameToProvision
 
@@ -54,12 +51,14 @@ provisionCommand mConfig nameToProvision env input = do
   newStackOrPreviousValues <- getStackProvisionType fullStackName
   allTags <- getTags config stackToProvision env appName
 
-  (waitOption, allParams) <- getParameters newStackOrPreviousValues config stackToProvision paramSources paramSpecs dependencies env appName input
+  (doNotWaitOption, allParams) <- getParameters newStackOrPreviousValues config stackToProvision paramSources paramSpecs dependencies env appName input
 
   csId <- computeChangeset fullStackName newStackOrPreviousValues templateBody allParams allTags
   _ <- runChangeSet csId
 
-  when waitOption $ wait StackCreateComplete fullStackName
+  unless doNotWaitOption $ do
+    stackInfo <- waitOnStack fullStackName
+    logStack stackInfo
 
 assertMatchingGlobalness :: (AsCliError e, MonadError e m) => T.Text -> T.Text -> Bool -> m ()
 assertMatchingGlobalness env nameToProvision isGlobalStack = do
@@ -116,7 +115,7 @@ getParameters
 getParameters provisionType config stackToProvision paramSources allParamSpecs dependencies env appName input = do
     let paramSpecs = setRequiredSpecsWithPreviousValuesToOptional allParamSpecs
         constants  = paramSources ^..* folded.aside _Constant.to (second Value)
-    (waitOption, flags' :: S.Set (T.Text, ParameterValue)) <- options paramSpecs
+    (doNotWaitOption, flags' :: S.Set (T.Text, ParameterValue)) <- options paramSpecs
 
     outputs' <- stackOutputs
     envVars' <- envVars
@@ -128,7 +127,7 @@ getParameters provisionType config stackToProvision paramSources allParamSpecs d
       then runCreateHooks validInitialParams outputs'
       else return validInitialParams
     assertNoMissingRequiredParameters postHookParams paramSpecs
-    pure (waitOption, postHookParams)
+    pure (doNotWaitOption, postHookParams)
   where
     setRequiredSpecsWithPreviousValuesToOptional :: S.Set ParameterSpec -> S.Set ParameterSpec
     setRequiredSpecsWithPreviousValuesToOptional pSpecs = do
@@ -158,9 +157,9 @@ getParameters provisionType config stackToProvision paramSources allParamSpecs d
       unless (S.null paramFlagsNotInTemplate) $
         throwing _CliExtraParameterFlags paramFlagsNotInTemplate
       options' <- parseOpts flaggedParamSpecs input
-      let waitOption = options' ^. CL.wait
+      let doNotWaitOption = options' ^. CL.doNotWait
           params = options' ^. CL.parameters
-      pure (waitOption, S.fromList $ M.toList params)
+      pure (doNotWaitOption, S.fromList $ M.toList params)
 
     stackOutputs :: m (S.Set (T.Text, T.Text))
     stackOutputs = do

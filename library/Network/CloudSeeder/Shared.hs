@@ -8,6 +8,7 @@ module Network.CloudSeeder.Shared
   , logStack
   , getStack
   , mkFullStackName
+  , waitOnStack
   ) where
 
 import Control.Lens ((^.))
@@ -111,3 +112,36 @@ getStack stackName = do
 
 mkFullStackName :: T.Text -> T.Text -> T.Text -> StackName
 mkFullStackName env appName stackName = StackName $ env <> "-" <> appName <> "-" <> stackName
+
+waitOnStack :: (AsCliError e, MonadCloud e m) => StackName -> m Stack
+waitOnStack stackName = do
+  thisStack <- getStack stackName
+  doWait thisStack
+  maybeStackInfo <- describeStack stackName
+  maybe
+    (throwing _CliCloudError (CloudErrorInternal "stack did not exist after wait"))
+    pure
+    maybeStackInfo
+  where
+    doWait :: (AsCliError e, MonadCloud e m) => Stack -> m ()
+    doWait thisStack = do
+      let thisStackStatus = thisStack ^. stackStatus
+      case thisStackStatus of
+        SSCreateComplete -> wait StackCreateComplete stackName
+        SSCreateFailed -> wait StackCreateComplete stackName
+        SSCreateInProgress -> wait StackCreateComplete stackName
+        SSDeleteComplete -> wait StackDeleteComplete stackName
+        SSDeleteFailed -> wait StackDeleteComplete stackName
+        SSDeleteInProgress -> wait StackDeleteComplete stackName
+        SSRollbackComplete -> wait StackUpdateComplete stackName
+        SSRollbackFailed -> wait StackUpdateComplete stackName
+        SSRollbackInProgress -> wait StackUpdateComplete stackName
+        SSUpdateComplete -> wait StackUpdateComplete stackName
+        SSUpdateCompleteCleanupInProgress -> wait StackUpdateComplete stackName
+        SSUpdateInProgress -> wait StackUpdateComplete stackName
+        SSUpdateRollbackComplete -> wait StackUpdateComplete stackName
+        SSUpdateRollbackCompleteCleanupInProgress -> wait StackUpdateComplete stackName
+        SSUpdateRollbackFailed -> wait StackUpdateComplete stackName
+        SSUpdateRollbackInProgress -> wait StackUpdateComplete stackName
+        SSReviewInProgress -> throwing _CliStackNeedsChangeSetReview s
+          where (StackName s) = stackName

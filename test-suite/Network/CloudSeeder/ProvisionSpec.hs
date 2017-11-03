@@ -54,8 +54,7 @@ spec =
           [ "Stack Info:"
           , "  name: " <> stackName
           , "  status: " <> status
-          , "  outputs: "
-          ]
+          , "  outputs: \n" ]
 
     describe "provisionCommand" $ do
       describe "failures" $ do
@@ -108,6 +107,30 @@ spec =
             & mockActionT [ DescribeStack "test-foo-base" :-> Nothing ]
             & stubExceptT
 
+      describe "general" $ do
+        let config = DeploymentConfiguration "foo" []
+              [ StackConfiguration "base" [] [] False []
+              , StackConfiguration "server" [] [] False []
+              , StackConfiguration "frontend" [] [] False []
+              ]
+              []
+            mConfig = pure config
+
+        it "logs a stack after successfully applying a change set" $ example $
+          runSuccess $ provisionCommand mConfig "base" "test" ["provision", "base", "test"]
+            & stubFileSystemT
+              [("base.yaml", rootTemplate)]
+            & stubEnvironmentT []
+            & stubLoggerT [expectedStackInfo "test-foo-base" "StackCreateComplete"]
+            & mockActionT
+              [ DescribeStack "test-foo-base" :-> Nothing
+              , ComputeChangeset "test-foo-base" CreateStack rootTemplate rootExpectedParams rootExpectedTags :-> "csid"
+              , RunChangeSet "csid" :-> 200
+              , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSCreateInProgress)
+              , Wait StackCreateComplete (StackName "test-foo-base") :-> ()
+              , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSCreateComplete) ]
+            & stubExceptT
+
       context "the configuration does not have environment variables" $ do
         let config = DeploymentConfiguration "foo" []
               [ StackConfiguration "base" [] [] False []
@@ -126,7 +149,10 @@ spec =
             & mockActionT
               [ DescribeStack "test-foo-base" :-> Nothing
               , ComputeChangeset "test-foo-base" CreateStack rootTemplate rootExpectedParams rootExpectedTags :-> "csid"
-              , RunChangeSet "csid" :-> 200 ]
+              , RunChangeSet "csid" :-> 200
+              , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSCreateInProgress)
+              , Wait StackCreateComplete (StackName "test-foo-base") :-> ()
+              , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSCreateComplete) ]
             & stubExceptT
 
         it "passes only the outputs from previous stacks that are listed in this template's Parameters" $ do
@@ -155,7 +181,10 @@ spec =
                   (rootExpectedParams <> [("bar", Value "qux"), ("foo", Value "baz")])
                   rootExpectedTags
                   :-> "csid"
-              , RunChangeSet "csid" :-> 200 ]
+              , RunChangeSet "csid" :-> 200
+              , DescribeStack "test-foo-server" :-> Just (expectedStack "test-foo-server" SSCreateInProgress)
+              , Wait StackCreateComplete (StackName "test-foo-server") :-> ()
+              , DescribeStack "test-foo-server" :-> Just (expectedStack "test-foo-server" SSCreateComplete) ]
             & stubExceptT
 
           let frontendtemplate = rootTemplate
@@ -178,7 +207,10 @@ spec =
                   (rootExpectedParams <> [("foo", Value "baz")])
                   rootExpectedTags
                   :-> "csid"
-              , RunChangeSet "csid" :-> 200 ]
+              , RunChangeSet "csid" :-> 200
+              , DescribeStack "test-foo-frontend" :-> Just (expectedStack "test-foo-frontend" SSCreateInProgress)
+              , Wait StackCreateComplete (StackName "test-foo-frontend") :-> ()
+              , DescribeStack "test-foo-frontend" :-> Just (expectedStack "test-foo-frontend" SSCreateComplete) ]
             & stubExceptT
 
         it "fails if a dependency stack does not exist" $ do
@@ -243,7 +275,10 @@ spec =
             & mockActionT
               [ DescribeStack "test-foo-base" :-> Nothing
               , ComputeChangeset "test-foo-base" CreateStack template expectedParams rootExpectedTags :-> "csid"
-              , RunChangeSet "csid" :-> 200 ]
+              , RunChangeSet "csid" :-> 200
+              , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSCreateInProgress)
+              , Wait StackCreateComplete (StackName "test-foo-base") :-> ()
+              , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSCreateComplete) ]
             & stubExceptT
 
         it "fails when a global environment variable is missing" $ do
@@ -304,7 +339,10 @@ spec =
                   expectedBaseParams
                   rootExpectedTags
                   :-> "csid"
-              , RunChangeSet "csid" :-> 200 ]
+              , RunChangeSet "csid" :-> 200
+              , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSCreateInProgress)
+              , Wait StackCreateComplete (StackName "test-foo-base") :-> ()
+              , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSCreateComplete) ]
             & stubExceptT
 
           let serverEnv = env <> [ ("Server1", "b"), ("Server2", "c") ]
@@ -330,7 +368,10 @@ spec =
                   expectedServerParams
                   rootExpectedTags
                   :-> "csid"
-              , RunChangeSet "csid" :-> 200 ]
+              , RunChangeSet "csid" :-> 200
+              , DescribeStack "test-foo-server" :-> Just (expectedStack "test-foo-server" SSCreateInProgress)
+              , Wait StackCreateComplete (StackName "test-foo-server") :-> ()
+              , DescribeStack "test-foo-server" :-> Just (expectedStack "test-foo-server" SSCreateComplete) ]
             & stubExceptT
 
       context "the configuration has global tags" $ do
@@ -359,7 +400,10 @@ spec =
                   rootExpectedParams
                   expectedTags
                   :-> "csid"
-              , RunChangeSet "csid" :-> 200 ]
+              , RunChangeSet "csid" :-> 200
+              , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSCreateInProgress)
+              , Wait StackCreateComplete (StackName "test-foo-base") :-> ()
+              , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSCreateComplete) ]
             & stubExceptT
 
       context "the configuration has global and local tags" $ do
@@ -395,7 +439,10 @@ spec =
                   rootExpectedParams
                   expectedGlobalTags
                   :-> "csid"
-              , RunChangeSet "csid" :-> 200 ]
+              , RunChangeSet "csid" :-> 200
+              , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSCreateInProgress)
+              , Wait StackCreateComplete (StackName "test-foo-base") :-> ()
+              , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSCreateComplete) ]
             & stubExceptT
 
           runSuccess
@@ -414,7 +461,10 @@ spec =
                   rootExpectedParams
                   expectedServerTags
                   :-> "csid"
-              , RunChangeSet "csid" :-> 200 ]
+              , RunChangeSet "csid" :-> 200
+              , DescribeStack "test-foo-server" :-> Just (expectedStack "test-foo-server" SSCreateInProgress)
+              , Wait StackCreateComplete (StackName "test-foo-server") :-> ()
+              , DescribeStack "test-foo-server" :-> Just (expectedStack "test-foo-server" SSCreateComplete) ]
             & stubExceptT
 
       context "flags" $ do
@@ -445,7 +495,10 @@ spec =
                   (rootExpectedParams <> [("baz", Value "zab")])
                   rootExpectedTags
                   :-> "csid"
-              , RunChangeSet "csid" :-> 200 ]
+              , RunChangeSet "csid" :-> 200
+              , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSCreateInProgress)
+              , Wait StackCreateComplete (StackName "test-foo-base") :-> ()
+              , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSCreateComplete) ]
             & stubExceptT
 
         it "provides a default if an optional flag isn't provided" $
@@ -464,7 +517,10 @@ spec =
                   (rootExpectedParams <> [("baz", Value "prod")])
                   rootExpectedTags
                   :-> "csid"
-              , RunChangeSet "csid" :-> 200 ]
+              , RunChangeSet "csid" :-> 200
+              , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSCreateInProgress)
+              , Wait StackCreateComplete (StackName "test-foo-base") :-> ()
+              , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSCreateComplete) ]
             & stubExceptT
 
         it "raises an error if a flag is provided that does not exist in the template" $ do
@@ -508,7 +564,10 @@ spec =
                   (rootExpectedParams <> [("baz", UsePreviousValue)])
                   rootExpectedTags
                   :-> "csid"
-              , RunChangeSet "csid" :-> 200 ]
+              , RunChangeSet "csid" :-> 200
+              , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSCreateInProgress)
+              , Wait StackCreateComplete (StackName "test-foo-base") :-> ()
+              , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSCreateComplete) ]
             & stubExceptT
 
       context "global stacks" $ do
@@ -533,7 +592,10 @@ spec =
                   [("Env", Value "global")]
                   [("cj:application", "foo"), ("cj:environment", "global")]
                   :-> "csid"
-              , RunChangeSet "csid" :-> 200 ]
+              , RunChangeSet "csid" :-> 200
+              , DescribeStack "global-foo-repo" :-> Just (expectedStack "global-foo-repo" SSCreateInProgress)
+              , Wait StackCreateComplete (StackName "global-foo-repo") :-> ()
+              , DescribeStack "global-foo-repo" :-> Just (expectedStack "global-foo-repo" SSCreateComplete) ]
             & stubExceptT
 
         it "global stack may not be deployed into namespaces other than global" $ do
@@ -591,16 +653,19 @@ spec =
                   rootExpectedParams
                   rootExpectedTags
                   :-> "csid"
-              , RunChangeSet "csid" :-> 200 ]
+              , RunChangeSet "csid" :-> 200
+              , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSCreateInProgress)
+              , Wait StackCreateComplete (StackName "test-foo-base") :-> ()
+              , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSCreateComplete) ]
             & stubExceptT
 
-      context "wait" $ do
+      context "--no-wait option" $ do
         let mConfig' = pure $ DeploymentConfiguration "foo" []
               [ StackConfiguration "base" [] [] False [] ] []
 
-        it "waits for the requested command to finish" $
+        it "runs the change set without waiting" $
           runSuccess
-            $ provisionCommand mConfig' "base" "test" ["provision", "base", "test", "--wait"]
+            $ provisionCommand mConfig' "base" "test" ["provision", "base", "test", "--no-wait"]
             & stubFileSystemT
               [ ("base.yaml", rootTemplate) ]
             & stubEnvironmentT []
@@ -614,6 +679,5 @@ spec =
                   rootExpectedParams
                   rootExpectedTags
                   :-> "csid"
-              , RunChangeSet "csid" :-> 200
-              , Wait StackCreateComplete "test-foo-base" :-> () ]
+              , RunChangeSet "csid" :-> 200 ]
             & stubExceptT

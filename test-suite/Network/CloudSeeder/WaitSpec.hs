@@ -55,7 +55,7 @@ spec =
         runSuccess $ waitCommand mConfig "base" "test"
           & stubLoggerT [expectedStackLog "test-foo-base" "StackCreateComplete"]
           & mockActionT
-            [ DescribeStack (StackName testFooBase):-> Just (expectedStack testFooBase SSCreateInProgress)
+            [ DescribeStack (StackName testFooBase) :-> Just (expectedStack testFooBase SSCreateInProgress)
             , Wait StackCreateComplete (StackName testFooBase) :-> ()
             , DescribeStack (StackName testFooBase) :-> Just (expectedStack testFooBase SSCreateComplete) ]
           & stubExceptT

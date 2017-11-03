@@ -10,6 +10,7 @@ import Test.Hspec
 
 import Network.CloudSeeder.DSL
 import Network.CloudSeeder.Error
+import Network.CloudSeeder.Interfaces
 import Network.CloudSeeder.Main
 import Network.CloudSeeder.Shared
 import Network.CloudSeeder.Types
@@ -62,7 +63,7 @@ spec =
               [ ("base.yaml", template) ]
             & stubEnvironmentT []
             & stubCommandLineT ["provision", "base", "prod"]
-            & stubLoggerT []
+            & ignoreLoggerT
             & mockActionT
               [ DescribeStack "prod-foo-base" :-> Nothing
               , ComputeChangeset
@@ -72,7 +73,11 @@ spec =
                   [("Env", Value "prod"), ("baz", Value "qux"), ("foo", Value "bar")]
                   expectedTags
                   :-> "csid"
-              , RunChangeSet "csid" :-> 200 ]
+              , RunChangeSet "csid" :-> 200
+              , DescribeStack "prod-foo-base" :-> Just (expectedStack "prod-foo-base" SSCreateInProgress)
+              , Wait StackCreateComplete (StackName "prod-foo-base") :-> ()
+              , DescribeStack "prod-foo-base" :-> Just (expectedStack "prod-foo-base" SSCreateComplete)
+              ]
             & stubExceptT
 
         it "does not provide prod-only params when not in prod" $
@@ -81,7 +86,7 @@ spec =
               [ ("base.yaml", template) ]
             & stubEnvironmentT []
             & stubCommandLineT baseTestArgs
-            & stubLoggerT []
+            & ignoreLoggerT
             & mockActionT
               [ DescribeStack "test-foo-base" :-> Nothing
               , ComputeChangeset
@@ -91,7 +96,10 @@ spec =
                   ([("foo", Value "bar")] <> rootExpectedParams)
                   rootExpectedTags
                   :-> "csid"
-              , RunChangeSet "csid" :-> 200 ]
+              , RunChangeSet "csid" :-> 200
+              , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSCreateInProgress)
+              , Wait StackCreateComplete (StackName "test-foo-base") :-> ()
+              , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSCreateComplete) ]
             & stubExceptT
 
       context "hooks" $
@@ -101,41 +109,47 @@ spec =
                   stack "base" $
                     onCreate
                       launchMissiles
+
             runSuccess $ cli config'
-                  & stubFileSystemT
-                    [ ("base.yaml", rootTemplate) ]
-                  & stubEnvironmentT []
-                  & stubCommandLineT ["provision", "base", "test"]
-                  & stubLoggerT []
-                  & mockActionT
-                    [ DescribeStack "test-foo-base" :-> Nothing
-                    , LaunchMissiles :-> ()
-                    , ComputeChangeset
-                        "test-foo-base"
-                        CreateStack
-                        rootTemplate
-                        rootExpectedParams
-                        rootExpectedTags
-                        :-> "csid"
-                    , RunChangeSet "csid" :-> 200 ]
-                  & stubExceptT
+              & stubFileSystemT
+                [ ("base.yaml", rootTemplate) ]
+              & stubEnvironmentT []
+              & stubCommandLineT ["provision", "base", "test"]
+              & ignoreLoggerT
+              & mockActionT
+                [ DescribeStack "test-foo-base" :-> Nothing
+                , LaunchMissiles :-> ()
+                , ComputeChangeset
+                    "test-foo-base"
+                    CreateStack
+                    rootTemplate
+                    rootExpectedParams
+                    rootExpectedTags
+                    :-> "csid"
+                , RunChangeSet "csid" :-> 200
+                , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSCreateInProgress)
+                , Wait StackCreateComplete (StackName "test-foo-base") :-> ()
+                , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSCreateComplete) ]
+              & stubExceptT
 
           it "onCreate actions can set parameters" $ do
             let config' = deployment "foo" $
                   stack "base" $
                     onCreate $
                       param "bucketName" "the-best-bucket"
-            let template' = "Parameters:\n"
+
+                template' = "Parameters:\n"
                         <> "  Env:\n"
                         <> "    Type: String\n"
                         <> "  bucketName:\n"
                         <> "    Type: String\n"
+
             runSuccess $ cli config'
                   & stubFileSystemT
                     [ ("base.yaml", template') ]
                   & stubEnvironmentT []
                   & stubCommandLineT ["provision", "base", "test"]
-                  & stubLoggerT []
+                  & ignoreLoggerT
                   & mockActionT
                     [ DescribeStack "test-foo-base" :-> Nothing
                     , ComputeChangeset
@@ -145,7 +159,10 @@ spec =
                         (rootExpectedParams <> [("bucketName", Value "the-best-bucket")])
                         rootExpectedTags
                         :-> "csid"
-                    , RunChangeSet "csid" :-> 200 ]
+                    , RunChangeSet "csid" :-> 200
+                    , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSCreateInProgress)
+                    , Wait StackCreateComplete (StackName "test-foo-base") :-> ()
+                    , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSCreateComplete) ]
                   & stubExceptT
 
           it "onCreate actions can override parameters" $ do
@@ -164,7 +181,7 @@ spec =
                     [ ("base.yaml", template') ]
                   & stubEnvironmentT []
                   & stubCommandLineT ["provision", "base", "test"]
-                  & stubLoggerT []
+                  & ignoreLoggerT
                   & mockActionT
                     [ DescribeStack "test-foo-base" :-> Nothing
                     , ComputeChangeset
@@ -174,7 +191,10 @@ spec =
                         (rootExpectedParams <> [("bucketName", Value "the-best-bucket")])
                         rootExpectedTags
                         :-> "csid"
-                    , RunChangeSet "csid" :-> 200 ]
+                    , RunChangeSet "csid" :-> 200
+                    , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSCreateInProgress)
+                    , Wait StackCreateComplete (StackName "test-foo-base") :-> ()
+                    , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSCreateComplete) ]
                   & stubExceptT
 
           it "onCreate hooks are not executed on stack update" $ do
@@ -186,7 +206,7 @@ spec =
                 [ ("base.yaml", rootTemplate) ]
               & stubEnvironmentT []
               & stubCommandLineT ["provision", "base", "test"]
-              & stubLoggerT []
+              & ignoreLoggerT
               & mockActionT
                 [ DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSCreateComplete)
                 , ComputeChangeset
@@ -196,5 +216,8 @@ spec =
                     rootExpectedParams
                     rootExpectedTags
                     :-> "csid"
-                , RunChangeSet "csid" :-> 200 ]
+                , RunChangeSet "csid" :-> 200
+                , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSCreateInProgress)
+                , Wait StackCreateComplete (StackName "test-foo-base") :-> ()
+                , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSCreateComplete) ]
               & stubExceptT
