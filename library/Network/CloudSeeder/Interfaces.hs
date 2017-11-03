@@ -83,7 +83,6 @@ class Monad m => MonadCli m where
 
 getArgs' :: MonadBase IO m => m [String]
 getArgs' = liftBase IO.getArgs
--- getArgs' = liftBase $ execParser CL.parseArguments
 
 instance MonadCli m => MonadCli (ExceptT e m)
 instance MonadCli m => MonadCli (LoggingT m)

@@ -52,7 +52,7 @@ spec =
           config ^.. stacks.each.parameterSources `shouldBe` [[("foo", Env), ("bar", Env), ("baz", Env)]]
 
       describe "tags" $ do
-        it "adds environment variables to a DeploymentConfiguration" $ do
+        it "adds tags to a DeploymentConfiguration" $ do
           let tagz :: TagList
               tagz = [ ("tag1", "val1"), ("tag2", "val2") ]
               config = runIdentity $ deployment "" $ tags tagz
@@ -73,3 +73,17 @@ spec =
               tagz = [("foo", "bar"), ("baz", "qux")]
               config = runIdentity $ deployment "" $ stack "foo" (tags tagz)
           config ^.. stacks.each.tagSet `shouldBe` [tagz]
+
+      describe "flags" $ do
+        it "adds flag variables to a DeploymentConfiguration" $ do
+          let config = runIdentity $ deployment "" $ flag "baz"
+          config ^. parameterSources `shouldBe` [("baz", Flag)]
+
+        it "configures the current stack to require the given flags" $ do
+          let config = runIdentity $ deployment "" $ stack "foo" (flag "foo")
+          config ^.. stacks.each.parameterSources `shouldBe` [[("foo", Flag)]]
+
+      describe "global" $
+        it "marks a given stack to be provisioned globally" $ do
+          let config = runIdentity $ deployment "foo" $ stack "repo" global
+          config ^.. stacks.each.globalStack `shouldBe` [True]
