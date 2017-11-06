@@ -11,6 +11,7 @@ module Network.CloudSeeder.DSL
   , HasTagSet(..)
   , HasGlobalStack(..)
   , HasHooksCreate(..)
+  , HasStackPolicyPath(..)
   , CanSetConstant(..)
   , CreateT(..)
   , HookContext(..)
@@ -21,6 +22,7 @@ module Network.CloudSeeder.DSL
   , global
   , onCreate
   , password
+  , policy
   , secret
   , stack
   , stack_
@@ -70,6 +72,7 @@ data StackConfiguration m = StackConfiguration
   , _stackConfigurationParameterSources :: S.Set (T.Text, ParameterSource)
   , _stackConfigurationGlobalStack :: Bool
   , _stackConfigurationHooksCreate :: [CreateT m ()]
+  , _stackConfigurationStackPolicyPath :: Maybe T.Text
   }
 
 makeFields ''DeploymentConfiguration
@@ -95,7 +98,7 @@ stack_ name' = stack name' $ return ()
 
 stack :: Monad m => T.Text -> StateT (StackConfiguration m) m a -> StateT (DeploymentConfiguration m) m ()
 stack name' x = do
-  let stackConfig = StackConfiguration name' [] [] False []
+  let stackConfig = StackConfiguration name' [] [] False [] Nothing
   stackConfig' <- lift $ execStateT x stackConfig
   stacks %= (++ [stackConfig'])
 
@@ -121,6 +124,10 @@ tags ts = tagSet %= (<> S.fromList ts)
 onCreate :: (Monad m, HasHooksCreate s [CreateT m ()])
          => CreateT m () -> StateT s m ()
 onCreate action = hooksCreate %= (++ [action])
+
+policy :: (Monad m, HasStackPolicyPath s (Maybe T.Text))
+       => T.Text -> StateT s m ()
+policy path = stackPolicyPath .= Just path
 
 -- | Generates and stores a secret
 secret :: MonadCloud CliError m

@@ -87,3 +87,8 @@ spec =
         it "marks a given stack to be provisioned globally" $ do
           let config = runIdentity $ deployment "foo" $ stack "repo" global
           config ^.. stacks.each.globalStack `shouldBe` [True]
+
+      describe "policy" $
+        it "adds a stack policy filepath to the current stack" $ do
+          let config = runIdentity $ deployment "foo" $ stack "foo" (policy "foo.json")
+          config ^.. stacks.each.stackPolicyPath `shouldBe` [Just "foo.json"]

@@ -47,7 +47,7 @@ spec =
           , "  outputs: \n"
           ]
 
-        config = DeploymentConfiguration "foo" [] [StackConfiguration "base" [] [] False []] []
+        config = DeploymentConfiguration "foo" [] [StackConfiguration "base" [] [] False [] Nothing] []
         mConfig = pure config
 
     describe "waitCommand" $ do

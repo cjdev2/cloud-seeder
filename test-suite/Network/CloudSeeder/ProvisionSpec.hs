@@ -17,6 +17,7 @@ import Network.CloudSeeder.Types
 import Network.CloudSeeder.Test.Orphans ()
 import Network.CloudSeeder.Test.Stubs
 
+import qualified Data.Set as S
 import qualified Data.Text as T
 import qualified Data.ByteString as B hiding (pack)
 import qualified Data.ByteString.Char8 as B
@@ -40,6 +41,12 @@ spec =
         rootExpectedParams = [("Env", Value "test")]
         rootParams = [("Env", "test")]
 
+        simpleConfig = DeploymentConfiguration "foo" []
+          [ StackConfiguration "base" [] [] False [] Nothing
+          , StackConfiguration "server" [] [] False [] Nothing
+          , StackConfiguration "frontend" [] [] False [] Nothing
+          ] []
+
         expectedStack :: T.Text -> StackStatus -> Stack
         expectedStack stackName = Stack
           Nothing
@@ -58,15 +65,9 @@ spec =
 
     describe "provisionCommand" $ do
       describe "failures" $ do
-        let mConfig = pure $ DeploymentConfiguration "foo" []
-              [ StackConfiguration "base" [] [] False []
-              , StackConfiguration "server" [] [] False []
-              , StackConfiguration "frontend" [] [] False []
-              ] []
-
         it "fails if the template doesn't exist" $
           runFailure _FileNotFound "base.yaml"
-            $ provisionCommand mConfig "base" "test" []
+            $ provisionCommand (pure simpleConfig) "base" "test" []
             & stubFileSystemT []
             & stubEnvironmentT []
             & ignoreLoggerT
@@ -76,7 +77,7 @@ spec =
         it "fails if the template parameters can't be parsed" $ do
           let err = "YAML parse exception at line 0, column 8,\nwhile scanning a directive:\nfound unknown directive name"
           runFailure _CliTemplateDecodeFail err
-            $ provisionCommand mConfig "base" "test" []
+            $ provisionCommand (pure simpleConfig) "base" "test" []
             & stubFileSystemT [("base.yaml", "%invalid")]
             & stubEnvironmentT []
             & ignoreLoggerT
@@ -85,7 +86,7 @@ spec =
 
         it "fails if user attempts to deploy a stack that doesn't exist in the config" $
           runFailure _CliStackNotConfigured "snipe"
-            $ provisionCommand mConfig "snipe" "test" []
+            $ provisionCommand (pure simpleConfig) "snipe" "test" []
             & stubFileSystemT []
             & stubEnvironmentT []
             & ignoreLoggerT
@@ -100,24 +101,16 @@ spec =
                 <> "  bar:\n"
                 <> "    Type: String\n"
           runFailure _CliMissingRequiredParameters ["foo", "bar"]
-            $ provisionCommand mConfig "base" "test" ["provision", "base", "test"]
+            $ provisionCommand (pure simpleConfig) "base" "test" ["provision", "base", "test"]
             & stubFileSystemT [("base.yaml", baseTemplate)]
             & stubEnvironmentT []
             & ignoreLoggerT
             & mockActionT [ DescribeStack "test-foo-base" :-> Nothing ]
             & stubExceptT
 
-      describe "general" $ do
-        let config = DeploymentConfiguration "foo" []
-              [ StackConfiguration "base" [] [] False []
-              , StackConfiguration "server" [] [] False []
-              , StackConfiguration "frontend" [] [] False []
-              ]
-              []
-            mConfig = pure config
-
+      describe "general" $
         it "logs a stack after successfully applying a change set" $ example $
-          runSuccess $ provisionCommand mConfig "base" "test" ["provision", "base", "test"]
+          runSuccess $ provisionCommand (pure simpleConfig) "base" "test" ["provision", "base", "test"]
             & stubFileSystemT
               [("base.yaml", rootTemplate)]
             & stubEnvironmentT []
@@ -132,16 +125,8 @@ spec =
             & stubExceptT
 
       context "the configuration does not have environment variables" $ do
-        let config = DeploymentConfiguration "foo" []
-              [ StackConfiguration "base" [] [] False []
-              , StackConfiguration "server" [] [] False []
-              , StackConfiguration "frontend" [] [] False []
-              ]
-              []
-            mConfig = pure config
-
         it "applies a changeset to a stack" $ example $
-          runSuccess $ provisionCommand mConfig "base" "test" ["provision", "base", "test"]
+          runSuccess $ provisionCommand (pure simpleConfig) "base" "test" ["provision", "base", "test"]
             & stubFileSystemT
               [("base.yaml", rootTemplate)]
             & stubEnvironmentT []
@@ -166,7 +151,7 @@ spec =
                             , ("bar", "qux")
                             , ("last", "output") ]
 
-          runSuccess $ provisionCommand mConfig "server" "test" ["provision", "server", "test"]
+          runSuccess $ provisionCommand (pure simpleConfig) "server" "test" ["provision", "server", "test"]
             & stubFileSystemT
               [ ("server.yaml", serverTemplate) ]
             & stubEnvironmentT []
@@ -191,7 +176,7 @@ spec =
                               <> "  foo:\n"
                               <> "    Type: String\n"
 
-          runSuccess $ provisionCommand mConfig "frontend" "test" ["provision", "frontend", "test"]
+          runSuccess $ provisionCommand (pure simpleConfig) "frontend" "test" ["provision", "frontend", "test"]
             & stubFileSystemT
               [ ("frontend.yaml", frontendtemplate) ]
             & stubEnvironmentT []
@@ -215,7 +200,7 @@ spec =
 
         it "fails if a dependency stack does not exist" $ do
           runFailure _CliMissingDependencyStacks ["base"]
-            $ provisionCommand mConfig "frontend" "test" ["provision", "frontend", "test"]
+            $ provisionCommand (pure simpleConfig) "frontend" "test" ["provision", "frontend", "test"]
             & stubFileSystemT
               [ ("frontend.yaml", rootTemplate) ]
             & stubEnvironmentT []
@@ -227,7 +212,7 @@ spec =
             & stubExceptT
 
           runFailure _CliMissingDependencyStacks ["server"]
-            $ provisionCommand mConfig "frontend" "test" ["provision", "frontend", "test"]
+            $ provisionCommand (pure simpleConfig) "frontend" "test" ["provision", "frontend", "test"]
             & stubFileSystemT
               [ ("frontend.yaml", rootTemplate) ]
             & stubEnvironmentT []
@@ -239,7 +224,7 @@ spec =
             & stubExceptT
 
           runFailure _CliMissingDependencyStacks ["base", "server"]
-            $ provisionCommand mConfig "frontend" "test" ["provision", "frontend", "test"]
+            $ provisionCommand (pure simpleConfig) "frontend" "test" ["provision", "frontend", "test"]
             & stubFileSystemT
               [ ("frontend.yaml", rootTemplate) ]
             & stubEnvironmentT []
@@ -251,12 +236,8 @@ spec =
             & stubExceptT
 
       context "the configuration has global environment variables" $ do
-        let mConfig = pure $ DeploymentConfiguration "foo" []
-              [ StackConfiguration "base" [] [] False []
-              , StackConfiguration "server" [] [] False []
-              , StackConfiguration "frontend" [] [] False []
-              ]
-              [("Domain", Env), ("SecretsStore", Env)]
+        let ps = [("Domain", Env), ("SecretsStore", Env)] :: S.Set (T.Text, ParameterSource)
+            mConfig = pure $ simpleConfig & parameterSources .~ ps
         it "passes the value in each global environment variable as a parameter" $ do
           let template = rootTemplate
                       <> "  Domain:\n"
@@ -304,9 +285,9 @@ spec =
 
       context "the configuration has global and local environment variables" $ do
         let mConfig = pure $ DeploymentConfiguration "foo" []
-              [ StackConfiguration "base" [] [("Base", Env)] False []
-              , StackConfiguration "server" [] [("Server1", Env), ("Server2", Env)] False []
-              , StackConfiguration "frontend" [] [] False []
+              [ StackConfiguration "base" [] [("Base", Env)] False [] Nothing
+              , StackConfiguration "server" [] [("Server1", Env), ("Server2", Env)] False [] Nothing
+              , StackConfiguration "frontend" [] [] False [] Nothing
               ] [("Domain", Env), ("SecretsStore", Env)]
 
         let template = rootTemplate
@@ -377,11 +358,7 @@ spec =
       context "the configuration has global tags" $ do
         let globalTags :: TagList
             globalTags = [("cj:squad", "lambda"), ("taggo", "oggat")]
-        let mConfig = pure $ DeploymentConfiguration "foo" globalTags
-              [ StackConfiguration "base" [] [] False []
-              , StackConfiguration "server" [] [] False []
-              , StackConfiguration "frontend" [] [] False []
-              ] []
+            mConfig = pure $ simpleConfig & tagSet .~ globalTags
 
         it "passes the value in each tag" $ do
           let expectedTags = rootExpectedTags <> globalTags
@@ -418,9 +395,9 @@ spec =
             expectedServerTags = expectedGlobalTags <> serverTags
 
         let mConfig = pure $ DeploymentConfiguration "foo" globalTags
-              [ StackConfiguration "base" [] [] False []
-              , StackConfiguration "server" serverTags [] False []
-              , StackConfiguration "frontend" frontEndTags [] False []
+              [ StackConfiguration "base" [] [] False [] Nothing
+              , StackConfiguration "server" serverTags [] False [] Nothing
+              , StackConfiguration "frontend" frontEndTags [] False [] Nothing
               ] []
 
         it "passes the value in each tag to the proper stack" $ do
@@ -476,8 +453,8 @@ spec =
                     <> "    Default: prod"
 
         let mConfig = pure $ DeploymentConfiguration "foo" []
-              [ StackConfiguration "base" [] [] False []
-              ] [("baz", Flag)]
+              [ StackConfiguration "base" [] [] False [] Nothing ]
+              [("baz", Flag)]
 
         it "accepts optional flags where the config calls for them" $
           runSuccess
@@ -524,16 +501,11 @@ spec =
             & stubExceptT
 
         it "raises an error if a flag is provided that does not exist in the template" $ do
-          let config' = DeploymentConfiguration "foo" []
-                [ StackConfiguration "base" [] [] False []
-                , StackConfiguration "server" [] [] False []
-                , StackConfiguration "frontend" [] [] False []
-                ]
-                [("foo", Flag), ("bar", Flag), ("baz", Flag)]
-              mConfig' = pure config'
+          let config' = pure $ simpleConfig
+                & parameterSources .~ [("foo", Flag), ("bar", Flag), ("baz", Flag)]
 
           runFailure _CliExtraParameterFlags ["foo", "bar"]
-            $ provisionCommand mConfig' "base" "test" ["provision", "base", "test", "--foo", "oof", "--bar", "rab", "--baz", "zab"]
+            $ provisionCommand config' "base" "test" ["provision", "base", "test", "--foo", "oof", "--bar", "rab", "--baz", "zab"]
             & stubFileSystemT
               [ ("base.yaml", template) ]
             & stubEnvironmentT []
@@ -571,12 +543,11 @@ spec =
             & stubExceptT
 
       context "global stacks" $ do
-        it "global stacks can be deployed into the global environment" $ do
-          let mConfig' = pure $ DeploymentConfiguration "foo" []
-                [ StackConfiguration "repo" [] [] True []
-                , StackConfiguration "base" [] [] False []
-                ] []
-
+        let mConfig' = pure $ DeploymentConfiguration "foo" []
+              [ StackConfiguration "repo" [] [] True [] Nothing
+              , StackConfiguration "base" [] [] False [] Nothing
+              ] []
+        it "global stacks can be deployed into the global environment" $
           runSuccess
             $ provisionCommand mConfig' "repo" "global" ["provision", "repo", "global"]
             & stubFileSystemT
@@ -598,12 +569,7 @@ spec =
               , DescribeStack "global-foo-repo" :-> Just (expectedStack "global-foo-repo" SSCreateComplete) ]
             & stubExceptT
 
-        it "global stack may not be deployed into namespaces other than global" $ do
-          let mConfig' = pure $ DeploymentConfiguration "foo" []
-                [ StackConfiguration "repo" [] [] True []
-                , StackConfiguration "base" [] [] False []
-                ] []
-
+        it "global stack may not be deployed into namespaces other than global" $
           runFailure _CliGlobalStackMustProvisionToGlobal "repo"
             $ provisionCommand mConfig' "repo" "test" ["provision", "repo", "test"]
             & stubFileSystemT
@@ -614,12 +580,7 @@ spec =
             & stubExceptT
 
 
-        it "other stacks can not be deployed into the global namespace" $ do
-          let mConfig' = pure $ DeploymentConfiguration "foo" []
-                [ StackConfiguration "repo" [] [] True []
-                , StackConfiguration "base" [] [] False []
-                ] []
-
+        it "other stacks can not be deployed into the global namespace" $
           runFailure _CliStackNotGlobal "base"
             $ provisionCommand mConfig' "base" "global" ["provision", "base", "global"]
             & stubFileSystemT
@@ -630,14 +591,14 @@ spec =
             & stubExceptT
 
         it "other stacks treat global stacks as dependencies" $ do
-          let mConfig' = pure $ DeploymentConfiguration "foo" []
-                [ StackConfiguration "repo" [] [] True []
-                , StackConfiguration "accountSettings" [] [] True []
-                , StackConfiguration "base" [] [] False []
+          let mConfig'' = pure $ DeploymentConfiguration "foo" []
+                [ StackConfiguration "repo" [] [] True [] Nothing
+                , StackConfiguration "accountSettings" [] [] True [] Nothing
+                , StackConfiguration "base" [] [] False [] Nothing
                 ] []
 
           runSuccess
-            $ provisionCommand mConfig' "base" "test" ["provision", "base", "test"]
+            $ provisionCommand mConfig'' "base" "test" ["provision", "base", "test"]
             & stubFileSystemT
               [ ("base.yaml", rootTemplate) ]
             & stubEnvironmentT []
@@ -661,7 +622,7 @@ spec =
 
       context "--no-wait option" $ do
         let mConfig' = pure $ DeploymentConfiguration "foo" []
-              [ StackConfiguration "base" [] [] False [] ] []
+              [ StackConfiguration "base" [] [] False [] Nothing ] []
 
         it "runs the change set without waiting" $
           runSuccess
