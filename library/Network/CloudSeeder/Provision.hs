@@ -60,6 +60,11 @@ provisionCommand mConfig nameToProvision env input = do
     stackInfo <- waitOnStack fullStackName
     logStack stackInfo
 
+  let maybePolicyPath = stackToProvision ^. stackPolicyPath
+  case maybePolicyPath of
+    Just policyPath -> setStackPolicy fullStackName =<< readFile policyPath
+    _ -> pure ()
+
 assertMatchingGlobalness :: (AsCliError e, MonadError e m) => T.Text -> T.Text -> Bool -> m ()
 assertMatchingGlobalness env nameToProvision isGlobalStack = do
   when (env == "global" && not isGlobalStack) $

@@ -172,13 +172,13 @@ spec =
               , DescribeStack "test-foo-server" :-> Just (expectedStack "test-foo-server" SSCreateComplete) ]
             & stubExceptT
 
-          let frontendtemplate = rootTemplate
+          let frontendTemplate = rootTemplate
                               <> "  foo:\n"
                               <> "    Type: String\n"
 
           runSuccess $ provisionCommand (pure simpleConfig) "frontend" "test" ["provision", "frontend", "test"]
             & stubFileSystemT
-              [ ("frontend.yaml", frontendtemplate) ]
+              [ ("frontend.yaml", frontendTemplate) ]
             & stubEnvironmentT []
             & ignoreLoggerT
             & mockActionT
@@ -188,7 +188,7 @@ spec =
               , ComputeChangeset
                   "test-foo-frontend"
                   CreateStack
-                  frontendtemplate
+                  frontendTemplate
                   (rootExpectedParams <> [("foo", Value "baz")])
                   rootExpectedTags
                   :-> "csid"
@@ -618,6 +618,76 @@ spec =
               , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSCreateInProgress)
               , Wait StackCreateComplete (StackName "test-foo-base") :-> ()
               , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSCreateComplete) ]
+            & stubExceptT
+
+      context "stack configuration includes stack policy" $ do
+        let mConfig' = pure $ DeploymentConfiguration "foo" []
+              [ StackConfiguration "base" [] [] False [] (Just "policy.json") ] []
+            testPolicy = T.unlines
+              [ "{\"Statement\" : ["
+              , "  {"
+              , "    \"Effect\" : \"Allow\","
+              , "    \"Action\" : \"Update:*\","
+              , "    \"Principal\": \"*\","
+              , "    \"Resource\" : \"*\""
+              , "  },"
+              , "  {"
+              , "    \"Effect\" : \"Deny\","
+              , "    \"Action\" : [\"Update:Replace\", \"Update:Delete\"],"
+              , "    \"Principal\" : \"*\","
+              , "    \"Resource\" : \"*\""
+              , "}]}"
+              ]
+
+        it "creates a stack with a stack policy" $
+          runSuccess
+            $ provisionCommand mConfig' "base" "test" ["provision", "base", "test"]
+            & stubFileSystemT
+              [ ("base.yaml", rootTemplate)
+              , ("policy.json", testPolicy) ]
+            & stubEnvironmentT []
+            & ignoreLoggerT
+            & mockActionT
+              [ DescribeStack "test-foo-base" :-> Nothing
+              , ComputeChangeset
+                  "test-foo-base"
+                  CreateStack
+                  rootTemplate
+                  rootExpectedParams
+                  rootExpectedTags
+                  :-> "csid"
+              , RunChangeSet "csid" :-> ()
+              , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSCreateInProgress)
+              , Wait StackCreateComplete (StackName "test-foo-base") :-> ()
+              , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSCreateComplete)
+              , SetStackPolicy "test-foo-base" testPolicy :-> ()
+              ]
+            & stubExceptT
+
+        it "sets a stack policy on a stack that already exists" $
+          runSuccess
+            $ provisionCommand mConfig' "base" "test" ["provision", "base", "test"]
+            & stubFileSystemT
+              [ ("base.yaml", rootTemplate)
+              , ("policy.json", testPolicy) ]
+            & stubEnvironmentT []
+            & ignoreLoggerT
+            & mockActionT
+              [ DescribeStack "test-foo-base" :->
+                  Just (expectedStack "test-foo-base" SSCreateComplete)
+              , ComputeChangeset
+                  "test-foo-base"
+                  (UpdateStack ["Env"])
+                  rootTemplate
+                  rootExpectedParams
+                  rootExpectedTags
+                  :-> "csid"
+              , RunChangeSet "csid" :-> ()
+              , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSCreateInProgress)
+              , Wait StackCreateComplete (StackName "test-foo-base") :-> ()
+              , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSCreateComplete)
+              , SetStackPolicy "test-foo-base" testPolicy :-> ()
+              ]
             & stubExceptT
 
       context "--no-wait option" $ do

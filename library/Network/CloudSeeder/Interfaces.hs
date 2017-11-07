@@ -14,6 +14,7 @@ module Network.CloudSeeder.Interfaces
   , upload'
   , generateSecret'
   , generateEncryptUploadSecret
+  , setStackPolicy'
   , wait'
   , CharType(..)
   , CloudError(..)
@@ -41,11 +42,11 @@ import Control.Monad.Catch (MonadCatch, MonadThrow)
 import Control.Monad.Error.Lens (throwing)
 import Control.Monad.Except (ExceptT, MonadError)
 import Control.Monad.IO.Class (MonadIO)
-import Control.Monad.Logger (LoggingT)
+import Control.Monad.Logger (MonadLogger, LoggingT, logInfoN)
 import Control.Monad.Reader (MonadReader, ReaderT, ask)
 import Control.Monad.State (StateT)
 import Control.Monad.Trans (MonadTrans, lift)
-import Control.Monad.Trans.AWS (runResourceT, runAWST, send, await)
+import Control.Monad.Trans.AWS (ErrorCode(..), runResourceT, runAWST, send, await, serviceCode)
 import Control.Monad.Trans.Control (MonadBaseControl)
 import Control.Monad.Writer (WriterT)
 import Crypto.Random
@@ -153,6 +154,7 @@ class (AsCloudError e, MonadError e m) => MonadCloud e m | m -> e where
   encrypt :: T.Text -> T.Text -> m B.ByteString
   upload :: T.Text -> T.Text -> B.ByteString -> m ()
   generateSecret :: Int -> CharType -> m T.Text
+  setStackPolicy :: StackName -> T.Text -> m ()
   wait :: Waiter -> StackName -> m ()
 
   default computeChangeset :: (MonadTrans t, MonadCloud e m', m ~ t m') => StackName -> ProvisionType -> T.Text -> M.Map T.Text ParameterValue -> M.Map T.Text T.Text -> m T.Text
@@ -173,16 +175,26 @@ class (AsCloudError e, MonadError e m) => MonadCloud e m | m -> e where
   default generateSecret :: (MonadTrans t, MonadCloud e m', m ~ t m') => Int -> CharType -> m T.Text
   generateSecret a b = lift $ generateSecret a b
 
+  default setStackPolicy :: (MonadTrans t, MonadCloud e m', m ~ t m') => StackName -> T.Text -> m ()
+  setStackPolicy a b = lift $ setStackPolicy a b
+
   default wait :: (MonadTrans t, MonadCloud e m', m ~ t m') => Waiter -> StackName -> m ()
   wait a b = lift $ wait a b
 
-type MonadCloudIO r e m = (HasEnv r, MonadReader r m, MonadIO m, MonadBaseControl IO m, MonadCatch m, MonadThrow m, AsCloudError e, MonadError e m)
+type MonadCloudIO r e m = (HasEnv r, MonadReader r m, MonadIO m, MonadBaseControl IO m, MonadCatch m, MonadThrow m, AsCloudError e, MonadError e m, MonadLogger m)
 
 _StackDoesNotExistError :: AsError a => StackName -> Traversal' a ()
 _StackDoesNotExistError (StackName stackName) = _ServiceError.serviceMessage._Just.only (ErrorMessage msg)
   where msg = "Stack with id " <> stackName <> " does not exist"
 
-computeChangeset' :: MonadCloudIO r e m => StackName -> ProvisionType -> T.Text -> M.Map T.Text ParameterValue -> M.Map T.Text T.Text -> m T.Text
+computeChangeset'
+  :: MonadCloudIO r e m
+  => StackName
+  -> ProvisionType
+  -> T.Text
+  -> M.Map T.Text ParameterValue
+  -> M.Map T.Text T.Text
+  -> m T.Text
 computeChangeset' (StackName stackName) provisionType templateBody params tags = do
     uuid <- liftBase nextRandom
     let changeSetName = "cs-" <> toText uuid -- change set name must begin with a letter
@@ -196,7 +208,7 @@ computeChangeset' (StackName stackName) provisionType templateBody params tags =
             & CF.ccsTags .~ map awsTag (M.toList tags)
             & CF.ccsChangeSetType ?~ provisionTypeToChangeSetType provisionType
       response <- send request
-      maybe (throwing _CloudErrorInternal "createChangeSet did not return a valid response.")
+      maybe (throwing _CloudErrorInternal "createChangeSet did not return a valid response")
             return (response ^. CF.ccsrsId)
   where
     awsParam (key, Value val) = CF.parameter
@@ -245,13 +257,29 @@ describeStack' (StackName stackName) = do
 runChangeSet' :: MonadCloudIO r e m => T.Text -> m ()
 runChangeSet' csId = do
     env <- ask
-    r <- runResourceT . runAWST env $ do
+    r <- IO.trying CF._InvalidChangeSetStatusException $ runResourceT . runAWST env $ do
       void $ await CF.changeSetCreateComplete (CF.describeChangeSet csId)
       send (CF.executeChangeSet csId)
-    let statusCode = r ^. CF.ecsrsResponseStatus
-    case statusCode of
-      200 -> pure ()
-      _ -> throwing _CloudErrorInternal ("executeChangeSet returned invalid response " <> T.pack (show statusCode) <> " for changeset id " <> csId <> ". This should never happen--please submit an issue to the cloud-seeder repo.")
+    case r of
+      Left e -> do
+        let (ErrorCode errorCode) = e ^. serviceCode
+        if errorCode == "InvalidChangeSetStatus"
+          then logInfoN "executeChangeSet failed, most likely because there were no changes. Ignoring."
+          -- TODO: for now, ignore this error b/c it's PROBABLY due to no changes. Fix will come when "describeChangeSet" is implemented.
+          else throwing _CloudErrorInternal ("executeChangeSet returned error " <> errorCode <> " for changeset id " <> csId)
+      Right _ -> pure ()
+
+setStackPolicy' :: MonadCloudIO r e m => StackName -> T.Text -> m ()
+setStackPolicy' stackName policy = do
+  let (StackName sName) = stackName
+  env <- ask
+  runResourceT . runAWST env $ do
+    let request = CF.setStackPolicy sName
+          & CF.sspStackPolicyBody ?~ policy
+    response <- IO.trying_ (_StackDoesNotExistError stackName) (send request)
+    case response of
+      Just _ -> pure ()
+      Nothing -> throwing _CloudErrorInternal "setStackPolicy: stack did not exist"
 
 wait' :: MonadCloudIO r e m => Waiter -> StackName -> m ()
 wait' waiter stackName = do

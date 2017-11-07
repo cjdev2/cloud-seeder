@@ -1,5 +1,3 @@
-{-# LANGUAGE TemplateHaskell #-}
-
 module Network.CloudSeeder.Shared
   ( parseArgs
   , parseOpts
@@ -15,7 +13,7 @@ import Control.Lens ((^.))
 import Control.Monad (when)
 import Control.Monad.Error.Lens (throwing)
 import Control.Monad.Except (MonadError)
-import Control.Monad.Logger (MonadLogger, logInfo)
+import Control.Monad.Logger (MonadLogger, logInfoN)
 import Data.Semigroup ((<>))
 import Network.AWS.CloudFormation (StackStatus(..))
 import Options.Applicative (ParserPrefs(..), ParserResult(..), execParserPure, renderFailure)
@@ -71,7 +69,7 @@ whenEnv env x = do
   when (envToProvision == env) x
 
 logStack :: MonadLogger m => Stack -> m ()
-logStack stackInfo = $(logInfo) (render stackInfo)
+logStack stackInfo = logInfoN (render stackInfo)
   where
     render :: Stack -> T.Text
     render s = T.unlines

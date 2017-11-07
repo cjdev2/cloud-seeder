@@ -56,6 +56,7 @@ instance MonadCloud CliError AppM where
   encrypt = encrypt'
   upload = upload'
   generateSecret = generateSecret'
+  setStackPolicy = setStackPolicy'
   wait = wait'
 
 runAppM :: AppM a -> IO a
