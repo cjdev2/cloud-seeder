@@ -20,14 +20,21 @@ module Network.CloudSeeder.Types
 
   , StackName(..)
 
+  , ChangeSet(..)
+  , HasCsId(..)
+  , HasExecutionStatus(..)
+  , HasChanges(..)
+  , HasStatusReason(..)
+
   , Stack(..)
   , HasStackStatusReason(..)
   , HasChangeSetId(..)
-  , HasName(..)
   , HasOutputs(..)
-  , HasParameters(..)
   , HasStackId(..)
+
+  , HasParameters(..)
   , HasStackStatus(..)
+  , HasName(..)
   ) where
 
 import Control.Applicative ((<|>))
@@ -38,6 +45,7 @@ import Data.String (IsString)
 import Data.Yaml (FromJSON(..), Parser, Value(..), (.:?))
 import GHC.Generics (Generic)
 import Network.AWS.CloudFormation (StackStatus(..))
+import Network.AWS.CloudFormation.Types (Change, ExecutionStatus(..), Parameter)
 
 import qualified Data.HashMap.Strict as H
 import qualified Data.Map as M
@@ -47,6 +55,16 @@ import qualified Data.Set as S
 newtype StackName = StackName T.Text
   deriving (Eq, Show, Generic, IsString)
 instance NFData StackName
+
+data ChangeSet = ChangeSet
+  { _changeSetStatusReason :: Maybe T.Text
+  , _changeSetCsId :: Maybe T.Text
+  , _changeSetParameters :: [Parameter]
+  , _changeSetExecutionStatus :: Maybe ExecutionStatus
+  , _changeSetChanges :: [Change]
+  }
+  deriving (Eq, Show)
+makeFields ''ChangeSet
 
 data Stack = Stack
   { _stackStackStatusReason :: Maybe T.Text

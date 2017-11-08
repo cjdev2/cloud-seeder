@@ -51,6 +51,7 @@ instance MonadCli AppM where
 
 instance MonadCloud CliError AppM where
   computeChangeset = computeChangeset'
+  describeChangeSet = describeChangeSet'
   describeStack = describeStack'
   runChangeSet = runChangeSet'
   encrypt = encrypt'

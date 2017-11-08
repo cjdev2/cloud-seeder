@@ -8,6 +8,7 @@ module Network.CloudSeeder.Interfaces
 
   , MonadCloud(..)
   , computeChangeset'
+  , describeChangeSet'
   , describeStack'
   , runChangeSet'
   , encrypt'
@@ -149,6 +150,7 @@ data Waiter
 
 class (AsCloudError e, MonadError e m) => MonadCloud e m | m -> e where
   computeChangeset :: StackName -> ProvisionType -> T.Text -> M.Map T.Text ParameterValue -> M.Map T.Text T.Text -> m T.Text
+  describeChangeSet :: T.Text -> m ChangeSet
   describeStack :: StackName -> m (Maybe Stack)
   runChangeSet :: T.Text -> m ()
   encrypt :: T.Text -> T.Text -> m B.ByteString
@@ -159,6 +161,9 @@ class (AsCloudError e, MonadError e m) => MonadCloud e m | m -> e where
 
   default computeChangeset :: (MonadTrans t, MonadCloud e m', m ~ t m') => StackName -> ProvisionType -> T.Text -> M.Map T.Text ParameterValue -> M.Map T.Text T.Text -> m T.Text
   computeChangeset a b c d e = lift $ computeChangeset a b c d e
+
+  default describeChangeSet :: (MonadTrans t, MonadCloud e m', m ~ t m') => T.Text -> m ChangeSet
+  describeChangeSet = lift . describeChangeSet
 
   default describeStack :: (MonadTrans t, MonadCloud e m', m ~ t m') => StackName -> m (Maybe Stack)
   describeStack = lift . describeStack
@@ -181,7 +186,7 @@ class (AsCloudError e, MonadError e m) => MonadCloud e m | m -> e where
   default wait :: (MonadTrans t, MonadCloud e m', m ~ t m') => Waiter -> StackName -> m ()
   wait a b = lift $ wait a b
 
-type MonadCloudIO r e m = (HasEnv r, MonadReader r m, MonadIO m, MonadBaseControl IO m, MonadCatch m, MonadThrow m, AsCloudError e, MonadError e m, MonadLogger m)
+type MonadCloudIO r e m = (HasEnv r, MonadReader r m, MonadIO m, MonadBaseControl IO m, MonadCatch m, MonadThrow m, AsCloudError e, MonadError e m, MonadLogger m, MonadCloud e m)
 
 _StackDoesNotExistError :: AsError a => StackName -> Traversal' a ()
 _StackDoesNotExistError (StackName stackName) = _ServiceError.serviceMessage._Just.only (ErrorMessage msg)
@@ -223,6 +228,23 @@ computeChangeset' (StackName stackName) provisionType templateBody params tags =
     provisionTypeToChangeSetType CreateStack = CF.Create
     provisionTypeToChangeSetType (UpdateStack _) = CF.Update
 
+describeChangeSet' :: MonadCloudIO r e m => T.Text -> m ChangeSet
+describeChangeSet' csId' = do
+  env <- ask
+  let request = CF.describeChangeSet csId'
+  runResourceT . runAWST env $ do
+    response <- IO.trying CF._ChangeSetNotFoundException (send request)
+    case response of
+      Left e -> do
+        let (ErrorCode errorCode) = e ^. serviceCode
+        throwing _CloudErrorInternal ("describeChangeSet returned error " <> errorCode <> " for changeset id " <> csId')
+      Right r -> pure $ ChangeSet
+        (r ^. CF.drsStatusReason)
+        (r ^. CF.drsChangeSetId)
+        (r ^. CF.drsParameters)
+        (r ^. CF.drsExecutionStatus)
+        (r ^. CF.drsChanges)
+
 describeStack' :: MonadCloudIO r e m => StackName -> m (Maybe Stack)
 describeStack' (StackName stackName) = do
   env <- ask
@@ -255,18 +277,17 @@ describeStack' (StackName stackName) = do
       (_, Nothing) -> throwing _CloudErrorInternal "stack output value was missing"
 
 runChangeSet' :: MonadCloudIO r e m => T.Text -> m ()
-runChangeSet' csId = do
+runChangeSet' csId' = do
     env <- ask
-    r <- IO.trying CF._InvalidChangeSetStatusException $ runResourceT . runAWST env $ do
-      void $ await CF.changeSetCreateComplete (CF.describeChangeSet csId)
-      send (CF.executeChangeSet csId)
+    r <- runResourceT . runAWST env $ do
+      void $ await CF.changeSetCreateComplete (CF.describeChangeSet csId')
+      IO.trying CF._InvalidChangeSetStatusException $ send (CF.executeChangeSet csId')
     case r of
-      Left e -> do
-        let (ErrorCode errorCode) = e ^. serviceCode
-        if errorCode == "InvalidChangeSetStatus"
-          then logInfoN "executeChangeSet failed, most likely because there were no changes. Ignoring."
-          -- TODO: for now, ignore this error b/c it's PROBABLY due to no changes. Fix will come when "describeChangeSet" is implemented.
-          else throwing _CloudErrorInternal ("executeChangeSet returned error " <> errorCode <> " for changeset id " <> csId)
+      Left _ -> do
+        changeSet <- describeChangeSet csId'
+        case changeSet ^. changes of
+          [] -> logInfoN "change set contains no changes"
+          _ -> throwing _CloudErrorInternal ("executeChangeSet returned invalidChangeSetStatus error for changeset id " <> csId')
       Right _ -> pure ()
 
 setStackPolicy' :: MonadCloudIO r e m => StackName -> T.Text -> m ()
