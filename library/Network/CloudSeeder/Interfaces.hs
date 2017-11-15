@@ -47,7 +47,6 @@ import Control.Monad.Logger (MonadLogger, LoggingT, logInfoN)
 import Control.Monad.Reader (MonadReader, ReaderT, ask)
 import Control.Monad.State (StateT)
 import Control.Monad.Trans (MonadTrans, lift)
-import Control.Monad.Trans.AWS (ErrorCode(..), runResourceT, runAWST, send, await, serviceCode)
 import Control.Monad.Trans.Control (MonadBaseControl)
 import Control.Monad.Writer (WriterT)
 import Crypto.Random
@@ -60,6 +59,7 @@ import GHC.IO.Exception (IOException(..), IOErrorType(..))
 import Network.AWS (AsError(..), ErrorMessage(..), HasEnv(..), serviceMessage)
 
 import qualified Control.Exception.Lens as IO
+import qualified Control.Monad.Trans.AWS as AWS
 import qualified Data.ByteString as B
 import qualified Data.Map as M
 import qualified Data.Set as S
@@ -67,7 +67,6 @@ import qualified Data.Text as T
 import qualified Data.Text.IO as T
 import qualified Data.Text.Conversions as T
 import qualified Network.AWS.CloudFormation as CF
-import qualified Network.AWS.Data.Body as AWS
 import qualified Network.AWS.KMS as KMS
 import qualified Network.AWS.S3 as S3
 import qualified System.Environment as IO
@@ -205,14 +204,14 @@ computeChangeset' (StackName stackName) provisionType templateBody params tags =
     let changeSetName = "cs-" <> toText uuid -- change set name must begin with a letter
 
     env <- ask
-    runResourceT . runAWST env $ do
+    AWS.runResourceT . AWS.runAWST env $ do
       let request = CF.createChangeSet stackName changeSetName
             & CF.ccsParameters .~ map awsParam (M.toList params)
             & CF.ccsTemplateBody ?~ templateBody
             & CF.ccsCapabilities .~ [CF.CapabilityIAM]
             & CF.ccsTags .~ map awsTag (M.toList tags)
             & CF.ccsChangeSetType ?~ provisionTypeToChangeSetType provisionType
-      response <- send request
+      response <- AWS.send request
       maybe (throwing _CloudErrorInternal "createChangeSet did not return a valid response")
             return (response ^. CF.ccsrsId)
   where
@@ -232,25 +231,74 @@ describeChangeSet' :: MonadCloudIO r e m => T.Text -> m ChangeSet
 describeChangeSet' csId' = do
   env <- ask
   let request = CF.describeChangeSet csId'
-  runResourceT . runAWST env $ do
-    response <- IO.trying CF._ChangeSetNotFoundException (send request)
-    case response of
-      Left e -> do
-        let (ErrorCode errorCode) = e ^. serviceCode
-        throwing _CloudErrorInternal ("describeChangeSet returned error " <> errorCode <> " for changeset id " <> csId')
-      Right r -> pure $ ChangeSet
-        (r ^. CF.drsStatusReason)
-        (r ^. CF.drsChangeSetId)
-        (r ^. CF.drsParameters)
-        (r ^. CF.drsExecutionStatus)
-        (r ^. CF.drsChanges)
+  response <- AWS.runResourceT . AWS.runAWST env $
+    IO.trying CF._ChangeSetNotFoundException $ do
+      void $ AWS.await CF.changeSetCreateComplete request
+      AWS.send request
+  case response of
+    Left e -> do
+      let (AWS.ErrorCode errorCode) = e ^. AWS.serviceCode
+      throwing _CloudErrorInternal ("describeChangeSet returned error " <> errorCode <> " for changeset id " <> csId')
+    Right r -> do
+      execStatus <- maybe
+        (throwing _CloudErrorInternal ("describeChangeSet did not return an execution status for changeset id " <> csId'))
+        pure
+        ((r ^. CF.drsExecutionStatus) :: Maybe CF.ExecutionStatus)
+      params <- mapM awsParamToParam (r ^. CF.drsParameters)
+      changes' <- mapM awsChangeToChange (r ^. CF.drsChanges)
+      pure $ ChangeSet (r ^. CF.drsStatusReason) csId' params execStatus changes'
+  where
+    awsParamToParam awsParam = do
+      key <- maybe
+        (throwing _CloudErrorInternal "describeChangeSet parameter missing key")
+        pure
+        (awsParam ^. CF.pParameterKey)
+      let maybeVal = awsParam ^. CF.pParameterValue
+          maybeUsePrevVal = awsParam ^. CF.pUsePreviousValue
+      case (maybeVal, maybeUsePrevVal) of
+        (Just val, Nothing) -> pure $ Parameter (key, Value val)
+        (Nothing, Just _) -> pure $ Parameter (key, UsePreviousValue)
+        _ -> throwing _CloudErrorInternal "describeChangeSet invalid parameter value"
+    awsChangeToChange :: (MonadCloudIO r e m) => CF.Change -> m Change
+    awsChangeToChange awsChange = do
+      awsResourceChange <- maybe
+        (throwing _CloudErrorInternal "describeChangeSet change missing resourceChange")
+        pure
+        (awsChange ^. CF.cResourceChange)
+      logicalId' <- maybe
+        (throwing _CloudErrorInternal "describeChangeSet resourceChange missing logicalId")
+        pure
+        (awsResourceChange ^. CF.rcLogicalResourceId)
+      physicalId' <- maybe
+        (throwing _CloudErrorInternal "describeChangeSet resourceChange missing physicalId")
+        pure
+        (awsResourceChange ^. CF.rcPhysicalResourceId)
+      resourceType' <- maybe
+        (throwing _CloudErrorInternal "describeChangeSet resourceChange missing resourceType")
+        pure
+        (awsResourceChange ^. CF.rcResourceType)
+      action <- maybe
+        (throwing _CloudErrorInternal "describeChangeSet resourceChange missing action")
+        pure
+        (awsResourceChange ^. CF.rcAction)
+      case action of
+        CF.Add -> pure $ Add $ ChangeAdd logicalId' physicalId' resourceType'
+        CF.Remove -> pure $ Remove $ ChangeRemove logicalId' physicalId' resourceType'
+        CF.Modify -> do
+          let scope' = awsResourceChange ^. CF.rcScope
+          let details' = awsResourceChange ^. CF.rcDetails
+          replacement' <- maybe
+            (throwing _CloudErrorInternal "describeChangeSet resourceChange missing replacement")
+            pure
+            (awsResourceChange ^. CF.rcReplacement)
+          pure $ Modify $ ChangeModify logicalId' physicalId' resourceType' scope' details' replacement'
 
 describeStack' :: MonadCloudIO r e m => StackName -> m (Maybe Stack)
 describeStack' (StackName stackName) = do
   env <- ask
   let request = CF.describeStacks & CF.dStackName ?~ stackName
-  runResourceT . runAWST env $ do
-    response <- IO.trying_ (_StackDoesNotExistError (StackName stackName)) $ send request
+  AWS.runResourceT . AWS.runAWST env $ do
+    response <- IO.trying_ (_StackDoesNotExistError (StackName stackName)) $ AWS.send request
     case response ^? _Just.CF.dsrsStacks of
       Nothing -> return Nothing
       Just [s] -> do
@@ -279,9 +327,9 @@ describeStack' (StackName stackName) = do
 runChangeSet' :: MonadCloudIO r e m => T.Text -> m ()
 runChangeSet' csId' = do
     env <- ask
-    r <- runResourceT . runAWST env $ do
-      void $ await CF.changeSetCreateComplete (CF.describeChangeSet csId')
-      IO.trying CF._InvalidChangeSetStatusException $ send (CF.executeChangeSet csId')
+    r <- AWS.runResourceT . AWS.runAWST env $ do
+      void $ AWS.await CF.changeSetCreateComplete (CF.describeChangeSet csId')
+      IO.trying CF._InvalidChangeSetStatusException $ AWS.send (CF.executeChangeSet csId')
     case r of
       Left _ -> do
         changeSet <- describeChangeSet csId'
@@ -294,10 +342,10 @@ setStackPolicy' :: MonadCloudIO r e m => StackName -> T.Text -> m ()
 setStackPolicy' stackName policy = do
   let (StackName sName) = stackName
   env <- ask
-  runResourceT . runAWST env $ do
+  AWS.runResourceT . AWS.runAWST env $ do
     let request = CF.setStackPolicy sName
           & CF.sspStackPolicyBody ?~ policy
-    response <- IO.trying_ (_StackDoesNotExistError stackName) (send request)
+    response <- IO.trying_ (_StackDoesNotExistError stackName) (AWS.send request)
     case response of
       Just _ -> pure ()
       Nothing -> throwing _CloudErrorInternal "setStackPolicy: stack did not exist"
@@ -306,8 +354,8 @@ wait' :: MonadCloudIO r e m => Waiter -> StackName -> m ()
 wait' waiter stackName = do
   env <- ask
   let (StackName sName) = stackName
-  void $ runResourceT . runAWST env $
-    await waiter' (CF.describeStacks & CF.dStackName ?~ sName)
+  void $ AWS.runResourceT . AWS.runAWST env $
+    AWS.await waiter' (CF.describeStacks & CF.dStackName ?~ sName)
   where
     waiter' = case waiter of
       StackCreateComplete -> CF.stackCreateComplete
@@ -334,19 +382,19 @@ generateSecret' len charFilter = do
 encrypt' :: MonadCloudIO r e m => T.Text -> T.Text -> m B.ByteString
 encrypt' input encryptionKeyId = do
   env <- ask
-  runResourceT . runAWST env $ do
+  AWS.runResourceT . AWS.runAWST env $ do
     let (T.UTF8 inputBS) = T.convertText input
         request = KMS.encrypt encryptionKeyId inputBS
-    response <- send request
+    response <- AWS.send request
     maybe (throwing _CloudErrorInternal "encrypt did not return a valid response.")
       return (response ^. KMS.ersCiphertextBlob)
 
 upload' :: MonadCloudIO r e m => T.Text -> T.Text -> B.ByteString -> m ()
 upload' bucket path payload = do
   env <- ask
-  runResourceT . runAWST env $ do
+  AWS.runResourceT . AWS.runAWST env $ do
     let request = S3.putObject (S3.BucketName bucket) (S3.ObjectKey path) (AWS.toBody payload)
-    _ <- send request
+    _ <- AWS.send request
     maybe (throwing _CloudErrorInternal "putObject did not return a valid response.")
       return $ return ()
 

@@ -123,7 +123,7 @@ tags ts = tagSet %= (<> S.fromList ts)
 
 onCreate :: (Monad m, HasHooksCreate s [CreateT m ()])
          => CreateT m () -> StateT s m ()
-onCreate action = hooksCreate %= (++ [action])
+onCreate action' = hooksCreate %= (++ [action'])
 
 policy :: (Monad m, HasStackPolicyPath s (Maybe T.Text))
        => T.Text -> StateT s m ()

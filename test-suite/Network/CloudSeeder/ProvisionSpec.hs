@@ -6,7 +6,6 @@ import Control.Monad.Mock (WithResult(..))
 import Data.Functor.Identity (runIdentity)
 import Data.Semigroup ((<>))
 import GHC.Exts (IsList(..))
-import Network.AWS.CloudFormation (StackStatus(..))
 import Test.Hspec
 
 import Network.CloudSeeder.DSL
@@ -21,6 +20,7 @@ import qualified Data.Set as S
 import qualified Data.Text as T
 import qualified Data.ByteString as B hiding (pack)
 import qualified Data.ByteString.Char8 as B
+import qualified Network.AWS.CloudFormation as CF
 
 type TagList = forall a. (IsList a, Item a ~ (T.Text, T.Text)) => a
 
@@ -41,13 +41,21 @@ spec =
         rootExpectedParams = [("Env", Value "test")]
         rootParams = [("Env", "test")]
 
+        expectedParameters = [ Parameter ("Env", Value "test") ]
+        expectedChangeSet = ChangeSet
+          Nothing
+          "csid"
+          expectedParameters
+          CF.Available
+          [ Add $ ChangeAdd "logid" "physid" "AWS::Thing" ]
+
         simpleConfig = DeploymentConfiguration "foo" []
           [ StackConfiguration "base" [] [] False [] Nothing
           , StackConfiguration "server" [] [] False [] Nothing
           , StackConfiguration "frontend" [] [] False [] Nothing
           ] []
 
-        expectedStack :: T.Text -> StackStatus -> Stack
+        expectedStack :: T.Text -> CF.StackStatus -> Stack
         expectedStack stackName = Stack
           Nothing
           (Just "csId")
@@ -108,21 +116,175 @@ spec =
             & mockActionT [ DescribeStack "test-foo-base" :-> Nothing ]
             & stubExceptT
 
-      describe "general" $
-        it "logs a stack after successfully applying a change set" $ example $
-          runSuccess $ provisionCommand (pure simpleConfig) "base" "test" ["provision", "base", "test"]
-            & stubFileSystemT
-              [("base.yaml", rootTemplate)]
-            & stubEnvironmentT []
-            & stubLoggerT [expectedStackInfo "test-foo-base" "StackCreateComplete"]
-            & mockActionT
-              [ DescribeStack "test-foo-base" :-> Nothing
-              , ComputeChangeset "test-foo-base" CreateStack rootTemplate rootExpectedParams rootExpectedTags :-> "csid"
-              , RunChangeSet "csid" :-> ()
-              , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSCreateInProgress)
-              , Wait StackCreateComplete (StackName "test-foo-base") :-> ()
-              , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSCreateComplete) ]
-            & stubExceptT
+      describe "change set logging" $ do
+        describe "add" $ do
+          let expectedChangeSet' = minimalChangeSet "csid" CF.Available
+                & parameters .~ expectedParameters
+                & changes .~ [ Add $ ChangeAdd "logid" "physid" "AWS::Thing" ]
+              expectedChangeSetInfo' csid status = B.unlines
+                [ "Change Set Info:"
+                , "  ID: " <> csid
+                , "  Status: " <> status
+                , "  Status Reason: N/A"
+                , "  Parameters: "
+                , "    Env: test"
+                , "  Changes: "
+                , "    Add:"
+                , "      Logical ID: logid"
+                , "      Physical ID: physid"
+                , "      Resource Type: AWS::Thing"
+                ]
+          it "logs a stack after successfully applying an add change set" $ example $
+            runSuccess $ provisionCommand (pure simpleConfig) "base" "test" ["provision", "base", "test"]
+              & stubFileSystemT
+                [("base.yaml", rootTemplate)]
+              & stubEnvironmentT []
+              & stubLoggerT [expectedChangeSetInfo' "csid" "Available", expectedStackInfo "test-foo-base" "StackCreateComplete"]
+              & mockActionT
+                [ DescribeStack "test-foo-base" :-> Nothing
+                , ComputeChangeset "test-foo-base" CreateStack rootTemplate rootExpectedParams rootExpectedTags :-> "csid"
+                , DescribeChangeSet "csid" :-> expectedChangeSet'
+                , RunChangeSet "csid" :-> ()
+                , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" CF.SSCreateInProgress)
+                , Wait StackCreateComplete (StackName "test-foo-base") :-> ()
+                , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" CF.SSCreateComplete) ]
+              & stubExceptT
+
+          it "logs the changes in an add change set before applying it" $ example $
+            runSuccess $ provisionCommand (pure simpleConfig) "base" "test" ["provision", "base", "test"]
+              & stubFileSystemT
+                [("base.yaml", rootTemplate)]
+              & stubEnvironmentT []
+              & stubLoggerT [expectedChangeSetInfo' "csid" "Available", expectedStackInfo "test-foo-base" "StackCreateComplete"]
+              & mockActionT
+                [ DescribeStack "test-foo-base" :-> Nothing
+                , ComputeChangeset "test-foo-base" CreateStack rootTemplate rootExpectedParams rootExpectedTags :-> "csid"
+                , DescribeChangeSet "csid" :-> expectedChangeSet
+                , RunChangeSet "csid" :-> ()
+                , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" CF.SSCreateInProgress)
+                , Wait StackCreateComplete (StackName "test-foo-base") :-> ()
+                , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" CF.SSCreateComplete) ]
+              & stubExceptT
+
+        describe "remove" $ do
+          let expectedChangeSet' = minimalChangeSet "csid" CF.Available
+                & parameters .~ expectedParameters
+                & changes .~ [ Remove $ ChangeRemove "logid" "physid" "AWS::Thing" ]
+              expectedChangeSetInfo' csid status = B.unlines
+                [ "Change Set Info:"
+                , "  ID: " <> csid
+                , "  Status: " <> status
+                , "  Status Reason: N/A"
+                , "  Parameters: "
+                , "    Env: test"
+                , "  Changes: "
+                , "    Remove:"
+                , "      Logical ID: logid"
+                , "      Physical ID: physid"
+                , "      Resource Type: AWS::Thing"
+                ]
+          it "logs a stack after successfully applying a remove change set" $ example $
+            runSuccess $ provisionCommand (pure simpleConfig) "base" "test" ["provision", "base", "test"]
+              & stubFileSystemT
+                [("base.yaml", rootTemplate)]
+              & stubEnvironmentT []
+              & stubLoggerT [expectedChangeSetInfo' "csid" "Available", expectedStackInfo "test-foo-base" "StackCreateComplete"]
+              & mockActionT
+                [ DescribeStack "test-foo-base" :-> Nothing
+                , ComputeChangeset "test-foo-base" CreateStack rootTemplate rootExpectedParams rootExpectedTags :-> "csid"
+                , DescribeChangeSet "csid" :-> expectedChangeSet'
+                , RunChangeSet "csid" :-> ()
+                , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" CF.SSCreateInProgress)
+                , Wait StackCreateComplete (StackName "test-foo-base") :-> ()
+                , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" CF.SSCreateComplete) ]
+              & stubExceptT
+
+          it "logs the changes in a remove change set before applying it" $ example $
+            runSuccess $ provisionCommand (pure simpleConfig) "base" "test" ["provision", "base", "test"]
+              & stubFileSystemT
+                [("base.yaml", rootTemplate)]
+              & stubEnvironmentT []
+              & stubLoggerT [expectedChangeSetInfo' "csid" "Available", expectedStackInfo "test-foo-base" "StackCreateComplete"]
+              & mockActionT
+                [ DescribeStack "test-foo-base" :-> Nothing
+                , ComputeChangeset "test-foo-base" CreateStack rootTemplate rootExpectedParams rootExpectedTags :-> "csid"
+                , DescribeChangeSet "csid" :-> expectedChangeSet'
+                , RunChangeSet "csid" :-> ()
+                , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" CF.SSCreateInProgress)
+                , Wait StackCreateComplete (StackName "test-foo-base") :-> ()
+                , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" CF.SSCreateComplete) ]
+              & stubExceptT
+
+        describe "modify" $ do
+          let expectedChangeSet' = minimalChangeSet "csid" CF.Available
+                & parameters .~ expectedParameters
+                & changes .~ [ Modify $
+                    ChangeModify "logid" "physid" "AWS::Thing"
+                    [ CF.Properties ]
+                    [ CF.resourceChangeDetail
+                        & CF.rcdCausingEntity .~ Just "a"
+                        & CF.rcdChangeSource .~ Just CF.DirectModification
+                        & CF.rcdEvaluation .~ Just CF.Static
+                        & CF.rcdTarget .~ Just (CF.resourceTargetDefinition
+                          & CF.rtdAttribute .~ Just CF.Properties
+                          & CF.rtdRequiresRecreation .~ Just CF.Always
+                          & CF.rtdName .~ Just "base")
+                    ]
+                    CF.Conditional ]
+              expectedChangeSetInfo' csid status = B.unlines
+                [ "Change Set Info:"
+                , "  ID: " <> csid
+                , "  Status: " <> status
+                , "  Status Reason: N/A"
+                , "  Parameters: "
+                , "    Env: test"
+                , "  Changes: "
+                , "    Modify:"
+                , "      Logical ID: logid"
+                , "      Physical ID: physid"
+                , "      Resource Type: AWS::Thing"
+                , "      Scope: Properties"
+                , "      Details: "
+                , "        Causing Entity: Just \"a\""
+                , "        Change Source: Just DirectModification"
+                , "        Evaluation: Just Static"
+                , "        Target: "
+                , "          Attribute: Just Properties"
+                , "          Requires Recreation: Just Always"
+                , "          Name: Just \"base\""
+                , "      Replacement: Conditional"
+                ]
+          it "logs a stack after successfully applying a remove change set" $ example $
+            runSuccess $ provisionCommand (pure simpleConfig) "base" "test" ["provision", "base", "test"]
+              & stubFileSystemT
+                [("base.yaml", rootTemplate)]
+              & stubEnvironmentT []
+              & stubLoggerT [expectedChangeSetInfo' "csid" "Available", expectedStackInfo "test-foo-base" "StackCreateComplete"]
+              & mockActionT
+                [ DescribeStack "test-foo-base" :-> Nothing
+                , ComputeChangeset "test-foo-base" CreateStack rootTemplate rootExpectedParams rootExpectedTags :-> "csid"
+                , DescribeChangeSet "csid" :-> expectedChangeSet'
+                , RunChangeSet "csid" :-> ()
+                , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" CF.SSCreateInProgress)
+                , Wait StackCreateComplete (StackName "test-foo-base") :-> ()
+                , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" CF.SSCreateComplete) ]
+              & stubExceptT
+
+          it "logs the changes in a remove change set before applying it" $ example $
+            runSuccess $ provisionCommand (pure simpleConfig) "base" "test" ["provision", "base", "test"]
+              & stubFileSystemT
+                [("base.yaml", rootTemplate)]
+              & stubEnvironmentT []
+              & stubLoggerT [expectedChangeSetInfo' "csid" "Available", expectedStackInfo "test-foo-base" "StackCreateComplete"]
+              & mockActionT
+                [ DescribeStack "test-foo-base" :-> Nothing
+                , ComputeChangeset "test-foo-base" CreateStack rootTemplate rootExpectedParams rootExpectedTags :-> "csid"
+                , DescribeChangeSet "csid" :-> expectedChangeSet'
+                , RunChangeSet "csid" :-> ()
+                , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" CF.SSCreateInProgress)
+                , Wait StackCreateComplete (StackName "test-foo-base") :-> ()
+                , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" CF.SSCreateComplete) ]
+              & stubExceptT
 
       context "the configuration does not have environment variables" $ do
         it "applies a changeset to a stack" $ example $
@@ -134,10 +296,11 @@ spec =
             & mockActionT
               [ DescribeStack "test-foo-base" :-> Nothing
               , ComputeChangeset "test-foo-base" CreateStack rootTemplate rootExpectedParams rootExpectedTags :-> "csid"
+              , DescribeChangeSet "csid" :-> expectedChangeSet
               , RunChangeSet "csid" :-> ()
-              , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSCreateInProgress)
+              , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" CF.SSCreateInProgress)
               , Wait StackCreateComplete (StackName "test-foo-base") :-> ()
-              , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSCreateComplete) ]
+              , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" CF.SSCreateComplete) ]
             & stubExceptT
 
         it "passes only the outputs from previous stacks that are listed in this template's Parameters" $ do
@@ -158,7 +321,7 @@ spec =
             & ignoreLoggerT
             & mockActionT
               [ DescribeStack "test-foo-server" :-> Nothing
-              , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSCreateComplete & outputs .~ baseOutputs)
+              , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" CF.SSCreateComplete & outputs .~ baseOutputs)
               , ComputeChangeset
                   "test-foo-server"
                   CreateStack
@@ -166,10 +329,11 @@ spec =
                   (rootExpectedParams <> [("bar", Value "qux"), ("foo", Value "baz")])
                   rootExpectedTags
                   :-> "csid"
+              , DescribeChangeSet "csid" :-> expectedChangeSet
               , RunChangeSet "csid" :-> ()
-              , DescribeStack "test-foo-server" :-> Just (expectedStack "test-foo-server" SSCreateInProgress)
+              , DescribeStack "test-foo-server" :-> Just (expectedStack "test-foo-server" CF.SSCreateInProgress)
               , Wait StackCreateComplete (StackName "test-foo-server") :-> ()
-              , DescribeStack "test-foo-server" :-> Just (expectedStack "test-foo-server" SSCreateComplete) ]
+              , DescribeStack "test-foo-server" :-> Just (expectedStack "test-foo-server" CF.SSCreateComplete) ]
             & stubExceptT
 
           let frontendTemplate = rootTemplate
@@ -183,8 +347,8 @@ spec =
             & ignoreLoggerT
             & mockActionT
               [ DescribeStack "test-foo-frontend" :-> Nothing
-              , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSCreateComplete & outputs .~ baseOutputs)
-              , DescribeStack "test-foo-server" :-> Just (expectedStack "test-foo-server" SSCreateComplete)
+              , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" CF.SSCreateComplete & outputs .~ baseOutputs)
+              , DescribeStack "test-foo-server" :-> Just (expectedStack "test-foo-server" CF.SSCreateComplete)
               , ComputeChangeset
                   "test-foo-frontend"
                   CreateStack
@@ -192,10 +356,11 @@ spec =
                   (rootExpectedParams <> [("foo", Value "baz")])
                   rootExpectedTags
                   :-> "csid"
+              , DescribeChangeSet "csid" :-> expectedChangeSet
               , RunChangeSet "csid" :-> ()
-              , DescribeStack "test-foo-frontend" :-> Just (expectedStack "test-foo-frontend" SSCreateInProgress)
+              , DescribeStack "test-foo-frontend" :-> Just (expectedStack "test-foo-frontend" CF.SSCreateInProgress)
               , Wait StackCreateComplete (StackName "test-foo-frontend") :-> ()
-              , DescribeStack "test-foo-frontend" :-> Just (expectedStack "test-foo-frontend" SSCreateComplete) ]
+              , DescribeStack "test-foo-frontend" :-> Just (expectedStack "test-foo-frontend" CF.SSCreateComplete) ]
             & stubExceptT
 
         it "fails if a dependency stack does not exist" $ do
@@ -208,7 +373,7 @@ spec =
             & mockActionT
               [ DescribeStack "test-foo-frontend" :-> Nothing
               , DescribeStack "test-foo-base" :-> Nothing
-              , DescribeStack "test-foo-server" :-> Just (expectedStack "test-foo-server" SSCreateComplete) ]
+              , DescribeStack "test-foo-server" :-> Just (expectedStack "test-foo-server" CF.SSCreateComplete) ]
             & stubExceptT
 
           runFailure _CliMissingDependencyStacks ["server"]
@@ -219,7 +384,7 @@ spec =
             & ignoreLoggerT
             & mockActionT
               [ DescribeStack "test-foo-frontend" :-> Nothing
-              , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSCreateComplete)
+              , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" CF.SSCreateComplete)
               , DescribeStack "test-foo-server" :-> Nothing ]
             & stubExceptT
 
@@ -256,10 +421,11 @@ spec =
             & mockActionT
               [ DescribeStack "test-foo-base" :-> Nothing
               , ComputeChangeset "test-foo-base" CreateStack template expectedParams rootExpectedTags :-> "csid"
+              , DescribeChangeSet "csid" :-> expectedChangeSet
               , RunChangeSet "csid" :-> ()
-              , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSCreateInProgress)
+              , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" CF.SSCreateInProgress)
               , Wait StackCreateComplete (StackName "test-foo-base") :-> ()
-              , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSCreateComplete) ]
+              , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" CF.SSCreateComplete) ]
             & stubExceptT
 
         it "fails when a global environment variable is missing" $ do
@@ -320,10 +486,11 @@ spec =
                   expectedBaseParams
                   rootExpectedTags
                   :-> "csid"
+              , DescribeChangeSet "csid" :-> expectedChangeSet
               , RunChangeSet "csid" :-> ()
-              , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSCreateInProgress)
+              , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" CF.SSCreateInProgress)
               , Wait StackCreateComplete (StackName "test-foo-base") :-> ()
-              , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSCreateComplete) ]
+              , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" CF.SSCreateComplete) ]
             & stubExceptT
 
           let serverEnv = env <> [ ("Server1", "b"), ("Server2", "c") ]
@@ -341,7 +508,7 @@ spec =
             & ignoreLoggerT
             & mockActionT
               [ DescribeStack "test-foo-server" :-> Nothing
-              , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSCreateComplete)
+              , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" CF.SSCreateComplete)
               , ComputeChangeset
                   "test-foo-server"
                   CreateStack
@@ -349,10 +516,11 @@ spec =
                   expectedServerParams
                   rootExpectedTags
                   :-> "csid"
+              , DescribeChangeSet "csid" :-> expectedChangeSet
               , RunChangeSet "csid" :-> ()
-              , DescribeStack "test-foo-server" :-> Just (expectedStack "test-foo-server" SSCreateInProgress)
+              , DescribeStack "test-foo-server" :-> Just (expectedStack "test-foo-server" CF.SSCreateInProgress)
               , Wait StackCreateComplete (StackName "test-foo-server") :-> ()
-              , DescribeStack "test-foo-server" :-> Just (expectedStack "test-foo-server" SSCreateComplete) ]
+              , DescribeStack "test-foo-server" :-> Just (expectedStack "test-foo-server" CF.SSCreateComplete) ]
             & stubExceptT
 
       context "the configuration has global tags" $ do
@@ -377,10 +545,11 @@ spec =
                   rootExpectedParams
                   expectedTags
                   :-> "csid"
+              , DescribeChangeSet "csid" :-> expectedChangeSet
               , RunChangeSet "csid" :-> ()
-              , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSCreateInProgress)
+              , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" CF.SSCreateInProgress)
               , Wait StackCreateComplete (StackName "test-foo-base") :-> ()
-              , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSCreateComplete) ]
+              , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" CF.SSCreateComplete) ]
             & stubExceptT
 
       context "the configuration has global and local tags" $ do
@@ -416,10 +585,11 @@ spec =
                   rootExpectedParams
                   expectedGlobalTags
                   :-> "csid"
+              , DescribeChangeSet "csid" :-> expectedChangeSet
               , RunChangeSet "csid" :-> ()
-              , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSCreateInProgress)
+              , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" CF.SSCreateInProgress)
               , Wait StackCreateComplete (StackName "test-foo-base") :-> ()
-              , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSCreateComplete) ]
+              , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" CF.SSCreateComplete) ]
             & stubExceptT
 
           runSuccess
@@ -430,7 +600,7 @@ spec =
             & ignoreLoggerT
             & mockActionT
               [ DescribeStack "test-foo-server" :-> Nothing
-              , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSCreateComplete)
+              , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" CF.SSCreateComplete)
               , ComputeChangeset
                   "test-foo-server"
                   CreateStack
@@ -438,10 +608,11 @@ spec =
                   rootExpectedParams
                   expectedServerTags
                   :-> "csid"
+              , DescribeChangeSet "csid" :-> expectedChangeSet
               , RunChangeSet "csid" :-> ()
-              , DescribeStack "test-foo-server" :-> Just (expectedStack "test-foo-server" SSCreateInProgress)
+              , DescribeStack "test-foo-server" :-> Just (expectedStack "test-foo-server" CF.SSCreateInProgress)
               , Wait StackCreateComplete (StackName "test-foo-server") :-> ()
-              , DescribeStack "test-foo-server" :-> Just (expectedStack "test-foo-server" SSCreateComplete) ]
+              , DescribeStack "test-foo-server" :-> Just (expectedStack "test-foo-server" CF.SSCreateComplete) ]
             & stubExceptT
 
       context "flags" $ do
@@ -472,10 +643,11 @@ spec =
                   (rootExpectedParams <> [("baz", Value "zab")])
                   rootExpectedTags
                   :-> "csid"
+              , DescribeChangeSet "csid" :-> expectedChangeSet
               , RunChangeSet "csid" :-> ()
-              , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSCreateInProgress)
+              , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" CF.SSCreateInProgress)
               , Wait StackCreateComplete (StackName "test-foo-base") :-> ()
-              , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSCreateComplete) ]
+              , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" CF.SSCreateComplete) ]
             & stubExceptT
 
         it "provides a default if an optional flag isn't provided" $
@@ -494,10 +666,11 @@ spec =
                   (rootExpectedParams <> [("baz", Value "prod")])
                   rootExpectedTags
                   :-> "csid"
+              , DescribeChangeSet "csid" :-> expectedChangeSet
               , RunChangeSet "csid" :-> ()
-              , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSCreateInProgress)
+              , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" CF.SSCreateInProgress)
               , Wait StackCreateComplete (StackName "test-foo-base") :-> ()
-              , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSCreateComplete) ]
+              , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" CF.SSCreateComplete) ]
             & stubExceptT
 
         it "raises an error if a flag is provided that does not exist in the template" $ do
@@ -527,7 +700,7 @@ spec =
             & ignoreLoggerT
             & mockActionT
               [ DescribeStack "test-foo-base" :->
-                  Just (expectedStack "test-foo-base" SSCreateComplete
+                  Just (expectedStack "test-foo-base" CF.SSCreateComplete
                     & parameters .~ ["Env", "baz"])
               , ComputeChangeset
                   "test-foo-base"
@@ -536,10 +709,11 @@ spec =
                   (rootExpectedParams <> [("baz", UsePreviousValue)])
                   rootExpectedTags
                   :-> "csid"
+              , DescribeChangeSet "csid" :-> expectedChangeSet
               , RunChangeSet "csid" :-> ()
-              , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSCreateInProgress)
+              , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" CF.SSCreateInProgress)
               , Wait StackCreateComplete (StackName "test-foo-base") :-> ()
-              , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSCreateComplete) ]
+              , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" CF.SSCreateComplete) ]
             & stubExceptT
 
       context "global stacks" $ do
@@ -563,10 +737,11 @@ spec =
                   [("Env", Value "global")]
                   [("cj:application", "foo"), ("cj:environment", "global")]
                   :-> "csid"
+              , DescribeChangeSet "csid" :-> expectedChangeSet
               , RunChangeSet "csid" :-> ()
-              , DescribeStack "global-foo-repo" :-> Just (expectedStack "global-foo-repo" SSCreateInProgress)
+              , DescribeStack "global-foo-repo" :-> Just (expectedStack "global-foo-repo" CF.SSCreateInProgress)
               , Wait StackCreateComplete (StackName "global-foo-repo") :-> ()
-              , DescribeStack "global-foo-repo" :-> Just (expectedStack "global-foo-repo" SSCreateComplete) ]
+              , DescribeStack "global-foo-repo" :-> Just (expectedStack "global-foo-repo" CF.SSCreateComplete) ]
             & stubExceptT
 
         it "global stack may not be deployed into namespaces other than global" $
@@ -605,8 +780,8 @@ spec =
             & ignoreLoggerT
             & mockActionT
               [ DescribeStack "test-foo-base" :-> Nothing
-              , DescribeStack "global-foo-repo" :-> Just (expectedStack "test-foo-repo" SSCreateComplete)
-              , DescribeStack "global-foo-accountSettings" :-> Just (expectedStack "test-foo-accountSettings" SSCreateComplete)
+              , DescribeStack "global-foo-repo" :-> Just (expectedStack "test-foo-repo" CF.SSCreateComplete)
+              , DescribeStack "global-foo-accountSettings" :-> Just (expectedStack "test-foo-accountSettings" CF.SSCreateComplete)
               , ComputeChangeset
                   "test-foo-base"
                   CreateStack
@@ -614,10 +789,11 @@ spec =
                   rootExpectedParams
                   rootExpectedTags
                   :-> "csid"
+              , DescribeChangeSet "csid" :-> expectedChangeSet
               , RunChangeSet "csid" :-> ()
-              , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSCreateInProgress)
+              , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" CF.SSCreateInProgress)
               , Wait StackCreateComplete (StackName "test-foo-base") :-> ()
-              , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSCreateComplete) ]
+              , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" CF.SSCreateComplete) ]
             & stubExceptT
 
       context "stack configuration includes stack policy" $ do
@@ -656,10 +832,11 @@ spec =
                   rootExpectedParams
                   rootExpectedTags
                   :-> "csid"
+              , DescribeChangeSet "csid" :-> expectedChangeSet
               , RunChangeSet "csid" :-> ()
-              , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSCreateInProgress)
+              , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" CF.SSCreateInProgress)
               , Wait StackCreateComplete (StackName "test-foo-base") :-> ()
-              , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSCreateComplete)
+              , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" CF.SSCreateComplete)
               , SetStackPolicy "test-foo-base" testPolicy :-> ()
               ]
             & stubExceptT
@@ -674,7 +851,7 @@ spec =
             & ignoreLoggerT
             & mockActionT
               [ DescribeStack "test-foo-base" :->
-                  Just (expectedStack "test-foo-base" SSCreateComplete)
+                  Just (expectedStack "test-foo-base" CF.SSCreateComplete)
               , ComputeChangeset
                   "test-foo-base"
                   (UpdateStack ["Env"])
@@ -682,10 +859,11 @@ spec =
                   rootExpectedParams
                   rootExpectedTags
                   :-> "csid"
+              , DescribeChangeSet "csid" :-> expectedChangeSet
               , RunChangeSet "csid" :-> ()
-              , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSCreateInProgress)
+              , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" CF.SSCreateInProgress)
               , Wait StackCreateComplete (StackName "test-foo-base") :-> ()
-              , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSCreateComplete)
+              , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" CF.SSCreateComplete)
               , SetStackPolicy "test-foo-base" testPolicy :-> ()
               ]
             & stubExceptT
@@ -710,5 +888,6 @@ spec =
                   rootExpectedParams
                   rootExpectedTags
                   :-> "csid"
+              , DescribeChangeSet "csid" :-> expectedChangeSet
               , RunChangeSet "csid" :-> () ]
             & stubExceptT

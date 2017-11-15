@@ -5,7 +5,7 @@ import Control.Monad.Mock (WithResult(..))
 import Data.Function ((&))
 import Data.Functor.Identity (runIdentity)
 import Data.Semigroup ((<>))
-import Network.AWS.CloudFormation (StackStatus(..))
+import Network.AWS.CloudFormation (StackStatus(..), ExecutionStatus(..))
 import Test.Hspec
 
 import Network.CloudSeeder.DSL
@@ -29,15 +29,13 @@ spec =
         baseTestArgs = ["provision", "base", "test"]
 
         expectedStack :: T.Text -> StackStatus -> Stack
-        expectedStack stackName = Stack
-          Nothing
-          (Just "csId")
-          stackName
-          []
-          ["Env"]
-          (Just "sId")
+        expectedStack stackName = Stack Nothing (Just "csId") stackName [] ["Env"] (Just "sId")
 
-    let stubExceptT :: ExceptT CliError m a -> m (Either CliError a)
+        expectedParameters = [ Parameter ("Env", Value "test") ]
+        expectedChanges = [ Add $ ChangeAdd "" "" "" ]
+        expectedChangeSet = ChangeSet Nothing "csid" expectedParameters Available expectedChanges
+
+        stubExceptT :: ExceptT CliError m a -> m (Either CliError a)
         stubExceptT = runExceptT
         runSuccess x = runIdentity x `shouldBe` Right ()
 
@@ -73,6 +71,7 @@ spec =
                   [("Env", Value "prod"), ("baz", Value "qux"), ("foo", Value "bar")]
                   expectedTags
                   :-> "csid"
+              , DescribeChangeSet "csid" :-> expectedChangeSet
               , RunChangeSet "csid" :-> ()
               , DescribeStack "prod-foo-base" :-> Just (expectedStack "prod-foo-base" SSCreateInProgress)
               , Wait StackCreateComplete (StackName "prod-foo-base") :-> ()
@@ -96,6 +95,7 @@ spec =
                   ([("foo", Value "bar")] <> rootExpectedParams)
                   rootExpectedTags
                   :-> "csid"
+              , DescribeChangeSet "csid" :-> expectedChangeSet
               , RunChangeSet "csid" :-> ()
               , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSCreateInProgress)
               , Wait StackCreateComplete (StackName "test-foo-base") :-> ()
@@ -126,6 +126,7 @@ spec =
                     rootExpectedParams
                     rootExpectedTags
                     :-> "csid"
+                , DescribeChangeSet "csid" :-> expectedChangeSet
                 , RunChangeSet "csid" :-> ()
                 , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSCreateInProgress)
                 , Wait StackCreateComplete (StackName "test-foo-base") :-> ()
@@ -159,6 +160,7 @@ spec =
                         (rootExpectedParams <> [("bucketName", Value "the-best-bucket")])
                         rootExpectedTags
                         :-> "csid"
+                    , DescribeChangeSet "csid" :-> expectedChangeSet
                     , RunChangeSet "csid" :-> ()
                     , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSCreateInProgress)
                     , Wait StackCreateComplete (StackName "test-foo-base") :-> ()
@@ -191,6 +193,7 @@ spec =
                         (rootExpectedParams <> [("bucketName", Value "the-best-bucket")])
                         rootExpectedTags
                         :-> "csid"
+                    , DescribeChangeSet "csid" :-> expectedChangeSet
                     , RunChangeSet "csid" :-> ()
                     , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSCreateInProgress)
                     , Wait StackCreateComplete (StackName "test-foo-base") :-> ()
@@ -216,6 +219,7 @@ spec =
                     rootExpectedParams
                     rootExpectedTags
                     :-> "csid"
+                , DescribeChangeSet "csid" :-> expectedChangeSet
                 , RunChangeSet "csid" :-> ()
                 , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" SSCreateInProgress)
                 , Wait StackCreateComplete (StackName "test-foo-base") :-> ()

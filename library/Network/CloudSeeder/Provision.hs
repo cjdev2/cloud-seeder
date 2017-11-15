@@ -54,6 +54,8 @@ provisionCommand mConfig nameToProvision env input = do
   (doNotWaitOption, allParams) <- getParameters newStackOrPreviousValues config stackToProvision paramSources paramSpecs dependencies env appName input
 
   csId' <- computeChangeset fullStackName newStackOrPreviousValues templateBody allParams allTags
+  csInfo <- describeChangeSet csId'
+  logChangeSet csInfo
   _ <- runChangeSet csId'
 
   unless doNotWaitOption $ do

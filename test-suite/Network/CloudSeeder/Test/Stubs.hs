@@ -63,10 +63,10 @@ stubLoggerT expectedLogs (LoggerT x) = do
   pure result
   where
     render :: These ByteString ByteString -> ByteString
-    render = \case
-      These expected actual -> "  expected: '" <> expected <> "' | actual: '" <> actual <> "'"
-      This expected -> "  expected: '" <> expected <> "' | actual: NULL "
-      That actual -> "  expected: NULL | actual: '" <> actual <> "'"
+    render = ("================================================\n" <>) <$> \case
+      These expected actual -> "EXPECTED:\n'" <> expected <> "'\n~~~~~~~\nACTUAL:\n'" <> actual <> "'"
+      This expected -> "EXPECTED:\n'" <> expected <> "'\n~~~~~~~\nACTUAL:\n  <NULL>"
+      That actual -> "EXPECTED:\n  <NULL>\n~~~~~~~\nACTUAL:\n'" <> actual <> "'"
 
 ignoreLoggerT :: Monad m => LoggerT m a -> m ()
 ignoreLoggerT (LoggerT x) = do
