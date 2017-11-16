@@ -257,8 +257,11 @@ describeChangeSet' csId' = do
           maybeUsePrevVal = awsParam ^. CF.pUsePreviousValue
       case (maybeVal, maybeUsePrevVal) of
         (Just val, Nothing) -> pure $ Parameter (key, Value val)
+        (Nothing, Nothing) -> pure $ Parameter (key, Value "")
         (Nothing, Just _) -> pure $ Parameter (key, UsePreviousValue)
-        _ -> throwing _CloudErrorInternal "describeChangeSet invalid parameter value"
+        (Just val, Just _) -> throwing
+          _CloudErrorInternal
+          ("describeChangeSet parameter contains both the value " <> val <> " and UsePreviousVal")
     awsChangeToChange :: (MonadCloudIO r e m) => CF.Change -> m Change
     awsChangeToChange awsChange = do
       awsResourceChange <- maybe
