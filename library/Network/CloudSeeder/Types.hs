@@ -148,14 +148,14 @@ newtype Parameter = Parameter (T.Text, ParameterValue)
 
 data ChangeAdd = ChangeAdd
   { _changeAddLogicalId :: T.Text
-  , _changeAddPhysicalId :: T.Text
+  , _changeAddPhysicalId :: Maybe T.Text
   , _changeAddResourceType :: T.Text
   } deriving (Eq, Show)
 makeFields ''ChangeAdd
 
 data ChangeModify = ChangeModify
   { _changeModifyLogicalId :: T.Text
-  , _changeModifyPhysicalId :: T.Text
+  , _changeModifyPhysicalId :: Maybe T.Text
   , _changeModifyResourceType :: T.Text
   , _changeModifyScope :: [CF.ResourceAttribute]
   , _changeModifyDetails :: [CF.ResourceChangeDetail]
@@ -165,7 +165,7 @@ makeFields ''ChangeModify
 
 data ChangeRemove = ChangeRemove
   { _changeRemoveLogicalId :: T.Text
-  , _changeRemovePhysicalId :: T.Text
+  , _changeRemovePhysicalId :: Maybe T.Text
   , _changeRemoveResourceType :: T.Text
   } deriving (Eq, Show)
 makeFields ''ChangeRemove

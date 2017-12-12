@@ -169,17 +169,17 @@ logChangeSet = logInfoN . render
     renderChange (Add c) = T.unlines $ T.stripEnd <$>
       [ "\n    Add: "
       , "      Logical ID: " <> c ^. logicalId
-      , "      Physical ID: " <> c ^. physicalId
+      , "      Physical ID: " <> T.pack (show $ c ^. physicalId)
       , "      Resource Type: " <> c ^. resourceType ]
     renderChange (Remove c) = T.unlines $ T.stripEnd <$>
       [ "\n    Remove: "
       , "      Logical ID: " <> c ^. logicalId
-      , "      Physical ID: " <> c ^. physicalId
+      , "      Physical ID: " <> T.pack (show $ c ^. physicalId)
       , "      Resource Type: " <> c ^. resourceType ]
     renderChange (Modify c) = T.unlines $ T.stripEnd <$>
       [ "\n    Modify: "
       , "      Logical ID: " <> c ^. logicalId
-      , "      Physical ID: " <> c ^. physicalId
+      , "      Physical ID: " <> T.pack (show $ c ^. physicalId)
       , "      Resource Type: " <> c ^. resourceType
       , "      Scope: " <> T.unlines (map renderScope (c ^. scope ))
       , "      Details: " <> T.unlines (map renderDetails (c ^. details))

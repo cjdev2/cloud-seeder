@@ -32,7 +32,7 @@ spec =
         expectedStack stackName = Stack Nothing (Just "csId") stackName [] ["Env"] (Just "sId")
 
         expectedParameters = [ Parameter ("Env", Value "test") ]
-        expectedChanges = [ Add $ ChangeAdd "" "" "" ]
+        expectedChanges = [ Add $ ChangeAdd "" (Just "") "" ]
         expectedChangeSet = ChangeSet Nothing "csid" expectedParameters Available expectedChanges
 
         stubExceptT :: ExceptT CliError m a -> m (Either CliError a)

@@ -47,7 +47,7 @@ spec =
           "csid"
           expectedParameters
           CF.Available
-          [ Add $ ChangeAdd "logid" "physid" "AWS::Thing" ]
+          [ Add $ ChangeAdd "logid" (Just "physid") "AWS::Thing" ]
 
         simpleConfig = DeploymentConfiguration "foo" []
           [ StackConfiguration "base" [] [] False [] Nothing
@@ -120,7 +120,7 @@ spec =
         describe "add" $ do
           let expectedChangeSet' = minimalChangeSet "csid" CF.Available
                 & parameters .~ expectedParameters
-                & changes .~ [ Add $ ChangeAdd "logid" "physid" "AWS::Thing" ]
+                & changes .~ [ Add $ ChangeAdd "logid" (Just "physid") "AWS::Thing" ]
               expectedChangeSetInfo' csid status = B.unlines
                 [ "Change Set Info:"
                 , "  ID: " <> csid
@@ -131,7 +131,7 @@ spec =
                 , "  Changes: "
                 , "    Add:"
                 , "      Logical ID: logid"
-                , "      Physical ID: physid"
+                , "      Physical ID: Just \"physid\""
                 , "      Resource Type: AWS::Thing"
                 ]
           it "logs a stack after successfully applying an add change set" $ example $
@@ -169,7 +169,7 @@ spec =
         describe "remove" $ do
           let expectedChangeSet' = minimalChangeSet "csid" CF.Available
                 & parameters .~ expectedParameters
-                & changes .~ [ Remove $ ChangeRemove "logid" "physid" "AWS::Thing" ]
+                & changes .~ [ Remove $ ChangeRemove "logid" (Just "physid") "AWS::Thing" ]
               expectedChangeSetInfo' csid status = B.unlines
                 [ "Change Set Info:"
                 , "  ID: " <> csid
@@ -180,7 +180,7 @@ spec =
                 , "  Changes: "
                 , "    Remove:"
                 , "      Logical ID: logid"
-                , "      Physical ID: physid"
+                , "      Physical ID: Just \"physid\""
                 , "      Resource Type: AWS::Thing"
                 ]
           it "logs a stack after successfully applying a remove change set" $ example $
@@ -219,7 +219,7 @@ spec =
           let expectedChangeSet' = minimalChangeSet "csid" CF.Available
                 & parameters .~ expectedParameters
                 & changes .~ [ Modify $
-                    ChangeModify "logid" "physid" "AWS::Thing"
+                    ChangeModify "logid" (Just "physid") "AWS::Thing"
                     [ CF.Properties ]
                     [ CF.resourceChangeDetail
                         & CF.rcdCausingEntity .~ Just "a"
@@ -241,7 +241,7 @@ spec =
                 , "  Changes: "
                 , "    Modify:"
                 , "      Logical ID: logid"
-                , "      Physical ID: physid"
+                , "      Physical ID: Just \"physid\""
                 , "      Resource Type: AWS::Thing"
                 , "      Scope: Properties"
                 , "      Details: "

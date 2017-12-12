@@ -272,10 +272,7 @@ describeChangeSet' csId' = do
         (throwing _CloudErrorInternal "describeChangeSet resourceChange missing logicalId")
         pure
         (awsResourceChange ^. CF.rcLogicalResourceId)
-      physicalId' <- maybe
-        (throwing _CloudErrorInternal "describeChangeSet resourceChange missing physicalId")
-        pure
-        (awsResourceChange ^. CF.rcPhysicalResourceId)
+      let physicalId' = awsResourceChange ^. CF.rcPhysicalResourceId
       resourceType' <- maybe
         (throwing _CloudErrorInternal "describeChangeSet resourceChange missing resourceType")
         pure
