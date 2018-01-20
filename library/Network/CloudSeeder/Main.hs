@@ -27,6 +27,7 @@ import Network.CloudSeeder.DSL
 import Network.CloudSeeder.Error
 import Network.CloudSeeder.Interfaces
 import Network.CloudSeeder.Provision
+import Network.CloudSeeder.Teardown
 import Network.CloudSeeder.Shared
 import Network.CloudSeeder.Wait
 
@@ -51,6 +52,7 @@ instance MonadCli AppM where
 
 instance MonadCloud CliError AppM where
   computeChangeset = computeChangeset'
+  deleteStack = deleteStack'
   describeChangeSet = describeChangeSet'
   describeStack = describeStack'
   runChangeSet = runChangeSet'
@@ -78,6 +80,7 @@ cli mConfig = do
   case cmd of
     CL.Wait nameToWaitFor env -> waitCommand mConfig nameToWaitFor env
     CL.ProvisionStack nameToProvision env -> provisionCommand mConfig nameToProvision env input
+    CL.TeardownStack nameToTeardown env -> teardownCommand mConfig nameToTeardown env
 
 cliIO :: AppM (DeploymentConfiguration AppM) -> IO ()
 cliIO mConfig = runAppM $ cli mConfig

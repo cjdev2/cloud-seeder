@@ -56,6 +56,8 @@ data Command
   = ProvisionStack T.Text T.Text
   -- | @'Wait' "stack" "env"@
   | Wait T.Text T.Text
+  -- | @'TeardownStack' "stack" "env"@
+  | TeardownStack T.Text T.Text
   deriving (Eq, Show)
 
 data Options = Options
@@ -97,9 +99,11 @@ provision :: ParsingPhase r -> Parser r
 provision phase = subparser
   $ provisionCmd
   <> waitCmd
+  <> teardownCmd
   where
     provisionCmd = command "provision" $ info (parser ProvisionStack) infoMod
     waitCmd = command "wait" $ info (parser Wait) (progDesc "Wait for stack to reach a stable state")
+    teardownCmd = command "teardown" $ info (parser TeardownStack) infoMod
     -- When parsing arguments, we want to ignore options. Using 'forwardOptions'
     -- treats them as positional arguments rather than outright ignoring them,
     -- but that’s good enough for our purposes.

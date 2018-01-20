@@ -27,7 +27,6 @@ type TagList = forall a. (IsList a, Item a ~ (T.Text, T.Text)) => a
 spec :: Spec
 spec =
   describe "Provision" $ do
-
     let stubExceptT :: ExceptT CliError m a -> m (Either CliError a)
         stubExceptT = runExceptT
         runSuccess x = runIdentity x `shouldBe` Right ()

@@ -8,6 +8,7 @@ module Network.CloudSeeder.Interfaces
 
   , MonadCloud(..)
   , computeChangeset'
+  , deleteStack'
   , describeChangeSet'
   , describeStack'
   , runChangeSet'
@@ -149,6 +150,7 @@ data Waiter
 
 class (AsCloudError e, MonadError e m) => MonadCloud e m | m -> e where
   computeChangeset :: StackName -> ProvisionType -> T.Text -> M.Map T.Text ParameterValue -> M.Map T.Text T.Text -> m T.Text
+  deleteStack :: StackName -> m ()
   describeChangeSet :: T.Text -> m ChangeSet
   describeStack :: StackName -> m (Maybe Stack)
   runChangeSet :: T.Text -> m ()
@@ -160,6 +162,9 @@ class (AsCloudError e, MonadError e m) => MonadCloud e m | m -> e where
 
   default computeChangeset :: (MonadTrans t, MonadCloud e m', m ~ t m') => StackName -> ProvisionType -> T.Text -> M.Map T.Text ParameterValue -> M.Map T.Text T.Text -> m T.Text
   computeChangeset a b c d e = lift $ computeChangeset a b c d e
+
+  default deleteStack :: (MonadTrans t, MonadCloud e m', m ~ t m') => StackName -> m ()
+  deleteStack = lift . deleteStack
 
   default describeChangeSet :: (MonadTrans t, MonadCloud e m', m ~ t m') => T.Text -> m ChangeSet
   describeChangeSet = lift . describeChangeSet
@@ -226,6 +231,12 @@ computeChangeset' (StackName stackName) provisionType templateBody params tags =
       & CF.tagValue ?~ val
     provisionTypeToChangeSetType CreateStack = CF.Create
     provisionTypeToChangeSetType (UpdateStack _) = CF.Update
+
+deleteStack' :: MonadCloudIO r e m => StackName -> m ()
+deleteStack' (StackName stackName) = do
+  env <- ask
+  let request = CF.deleteStack stackName
+  AWS.runResourceT . AWS.runAWST env $ void $ AWS.send request
 
 describeChangeSet' :: MonadCloudIO r e m => T.Text -> m ChangeSet
 describeChangeSet' csId' = do
