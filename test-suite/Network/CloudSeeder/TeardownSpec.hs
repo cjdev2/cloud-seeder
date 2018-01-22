@@ -42,21 +42,27 @@ spec =
           (Just "sId")
 
     describe "teardownCommand" $ do
-      describe "failures" $
-        it "fails if user attempts to teardown a stack that doesn't exist in the config" $
+      describe "failures" $ do
+        it "fails if stack is not configured" $
           runFailure _CliStackNotConfigured "snipe"
             $ teardownCommand (pure simpleConfig) "snipe" "test"
             & ignoreLoggerT
             & mockActionT []
             & stubExceptT
 
+        it "fails if stack is not provisioned" $
+          runFailure _CliStackDoesNotExist "test-foo-base"
+            $ teardownCommand (pure simpleConfig) "base" "test"
+            & ignoreLoggerT
+            & mockActionT [ DescribeStack "test-foo-base" :-> Nothing ]
+            & stubExceptT
+
       describe "happy path" $
-        it "tears down a stack that exists in the config" $ example $
+        it "tears down a configured, stable stack" $ example $
           runSuccess $ teardownCommand (pure simpleConfig) "base" "test"
             & ignoreLoggerT
             & mockActionT
-              [
-                DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" CF.SSCreateComplete)
+              [ DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" CF.SSCreateComplete)
               , Wait StackCreateComplete (StackName "test-foo-base") :-> ()
               , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" CF.SSCreateComplete)
               , DeleteStack "test-foo-base" :-> ()
