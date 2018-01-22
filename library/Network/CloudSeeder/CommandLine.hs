@@ -101,13 +101,14 @@ provision phase = subparser
   <> waitCmd
   <> teardownCmd
   where
-    provisionCmd = command "provision" $ info (parser ProvisionStack) infoMod
+    provisionCmd = command "provision" $ info (parser ProvisionStack) provisionMod
+    teardownCmd = command "teardown" $ info (parser TeardownStack) (progDesc "Teardown a stack in an environment")
     waitCmd = command "wait" $ info (parser Wait) (progDesc "Wait for stack to reach a stable state")
-    teardownCmd = command "teardown" $ info (parser TeardownStack) infoMod
+
     -- When parsing arguments, we want to ignore options. Using 'forwardOptions'
     -- treats them as positional arguments rather than outright ignoring them,
     -- but that’s good enough for our purposes.
-    infoMod = progDesc "Provision a stack in an environment" <> case phase of
+    provisionMod = progDesc "Provision a stack in an environment" <> case phase of
       PhaseArguments -> forwardOptions
       PhaseOptions _ -> mempty
 

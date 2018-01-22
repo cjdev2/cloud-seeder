@@ -8,19 +8,12 @@ Parameters:
     MinLength: 1
   BucketName:
     Type: String
-  BucketName2:
-    Type: String
 
 Resources:
   Bucket:
     Type: AWS::S3::Bucket
     Properties:
       BucketName: !Ref BucketName
-
-  Bucket2:
-    Type: AWS::S3::Bucket
-    Properties:
-      BucketName: !Ref BucketName2
 
 Outputs:
   Bucket:
