@@ -8,9 +8,14 @@ import Test.Hspec
 
 import Network.CloudSeeder.DSL
 import Network.CloudSeeder.Error
+import Network.CloudSeeder.Interfaces
 import Network.CloudSeeder.Teardown
 import Network.CloudSeeder.Test.Orphans ()
 import Network.CloudSeeder.Test.Stubs
+import Network.CloudSeeder.Types
+
+import qualified Data.Text as T
+import qualified Network.AWS.CloudFormation as CF
 
 spec :: Spec
 spec =
@@ -27,6 +32,15 @@ spec =
           , StackConfiguration "frontend" [] [] False [] Nothing
           ] []
 
+        expectedStack :: T.Text -> CF.StackStatus -> Stack
+        expectedStack stackName = Stack
+          Nothing
+          (Just "csId")
+          stackName
+          []
+          ["Env"]
+          (Just "sId")
+
     describe "teardownCommand" $ do
       describe "failures" $
         it "fails if user attempts to teardown a stack that doesn't exist in the config" $
@@ -41,5 +55,10 @@ spec =
           runSuccess $ teardownCommand (pure simpleConfig) "base" "test"
             & ignoreLoggerT
             & mockActionT
-              [ DeleteStack "test-foo-base" :-> () ]
+              [
+                DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" CF.SSCreateComplete)
+              , Wait StackCreateComplete (StackName "test-foo-base") :-> ()
+              , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" CF.SSCreateComplete)
+              , DeleteStack "test-foo-base" :-> ()
+              ]
             & stubExceptT
