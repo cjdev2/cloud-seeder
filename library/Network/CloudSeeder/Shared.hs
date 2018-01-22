@@ -8,17 +8,20 @@ module Network.CloudSeeder.Shared
   , getStack
   , mkFullStackName
   , waitOnStack
+  , getStackFromConfig
   ) where
 
-import Control.Lens ((^.))
+import Control.Lens ((^.), has, only, to)
 import Control.Monad (when)
 import Control.Monad.Error.Lens (throwing)
 import Control.Monad.Except (MonadError)
 import Control.Monad.Logger (MonadLogger, logInfoN)
+import Data.List (find)
 import Data.Semigroup ((<>))
 import Options.Applicative (ParserPrefs(..), ParserResult(..), execParserPure, renderFailure)
 
 import Network.CloudSeeder.Error
+import Network.CloudSeeder.DSL
 import Network.CloudSeeder.Interfaces
 import Network.CloudSeeder.Types
 
@@ -202,3 +205,10 @@ logChangeSet = logInfoN . render
           , "          Requires Recreation: " <> show (t ^. CF.rtdRequiresRecreation)
           , "          Name: " <> show (t ^. CF.rtdName)
           ]
+
+getStackFromConfig
+  :: (AsCliError e, MonadError e m)
+  => DeploymentConfiguration m -> T.Text -> m (StackConfiguration m)
+getStackFromConfig config targetStackName = do
+  let maybeStackToProvision = config ^. stacks.to (find (has (name.only targetStackName)))
+  maybe (throwing _CliStackNotConfigured targetStackName) return maybeStackToProvision

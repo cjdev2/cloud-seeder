@@ -4,7 +4,7 @@ module Network.CloudSeeder.Provision
 
 import Control.Applicative.Lift (Errors, failure, runErrors)
 import Control.Arrow (second)
-import Control.Lens (Getting, Prism', (^.), (^..), (^?), _1, _2, _Wrapped, anyOf, aside, each, filtered, folded, has, only, to)
+import Control.Lens (Getting, Prism', (^.), (^..), (^?), _1, _2, _Wrapped, anyOf, aside, each, filtered, folded, has, to)
 import Control.Monad (unless, when)
 import Control.Monad.Error.Lens (throwing)
 import Control.Monad.Except (MonadError(..), runExceptT)
@@ -13,7 +13,7 @@ import Control.Monad.Reader (runReaderT)
 import Control.Monad.State (execStateT)
 import Data.Coerce (coerce)
 import Data.Function (on)
-import Data.List (find, groupBy, sort)
+import Data.List (groupBy, sort)
 import Data.Text.Encoding (encodeUtf8)
 import Data.Semigroup (Endo, (<>))
 import Data.Yaml (decodeEither)
@@ -36,7 +36,7 @@ provisionCommand :: (AsCliError e, MonadCloud e m, MonadFileSystem e m, MonadEnv
   => m (DeploymentConfiguration m) -> T.Text -> T.Text -> [String] -> m ()
 provisionCommand mConfig nameToProvision env input = do
   config <- mConfig
-  stackToProvision <- getStackToProvision config nameToProvision
+  stackToProvision <- getStackFromConfig config nameToProvision
 
   let dependencies = takeWhile (\stak -> (stak ^. name) /= nameToProvision) (config ^.. stacks.each)
       appName = config ^. name
@@ -80,13 +80,6 @@ getStackProvisionType stackName = do
   pure $ case maybeStack of
     Nothing -> CreateStack
     Just s -> UpdateStack (s ^. parameters)
-
-getStackToProvision
-  :: (AsCliError e, MonadError e m)
-  => DeploymentConfiguration m -> T.Text -> m (StackConfiguration m)
-getStackToProvision config nameToProvision = do
-  let maybeStackToProvision = config ^. stacks.to (find (has (name.only nameToProvision)))
-  maybe (throwing _CliStackNotConfigured nameToProvision) return maybeStackToProvision
 
 decodeTemplate :: (AsCliError e, MonadError e m) => T.Text -> m (S.Set ParameterSpec)
 decodeTemplate templateBody = do
