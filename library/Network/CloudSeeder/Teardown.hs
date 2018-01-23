@@ -27,6 +27,8 @@ teardownCommand mConfig nameToTeardown env = do
       fullStackName = mkFullStackName env appName nameToTeardown
       (StackName fullStackNameText) = fullStackName
 
-  void $ waitOnStack fullStackName
-  logInfoN ("deleting stack " <> fullStackNameText)
+  waitOnStack fullStackName
+  logInfoN ("tearing down stack " <> fullStackNameText <> "...")
   deleteStack fullStackName
+  waitOnStack fullStackName
+  logInfoN ("teardown complete for stack " <> fullStackNameText)

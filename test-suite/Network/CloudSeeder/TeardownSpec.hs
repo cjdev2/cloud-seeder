@@ -64,7 +64,8 @@ spec =
             & mockActionT
               [ DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" CF.SSCreateComplete)
               , Wait StackCreateComplete (StackName "test-foo-base") :-> ()
-              , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" CF.SSCreateComplete)
               , DeleteStack "test-foo-base" :-> ()
+              , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" CF.SSDeleteComplete)
+              , Wait StackDeleteComplete (StackName "test-foo-base") :-> ()
               ]
             & stubExceptT

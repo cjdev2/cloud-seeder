@@ -3,6 +3,7 @@ module Network.CloudSeeder.Wait
   ) where
 
 import Control.Lens ((^.))
+import Control.Monad.Error.Lens (throwing)
 import Control.Monad.Logger (MonadLogger)
 
 import qualified Data.Text as T
@@ -18,5 +19,10 @@ waitCommand mConfig nameToWaitFor env = do
   config <- mConfig
   let appName = config ^. name
       stackName = mkFullStackName env appName nameToWaitFor
-  stackInfo <- waitOnStack stackName
+  waitOnStack stackName
+  waitedOnStack <- describeStack stackName
+  stackInfo <- maybe
+    (throwing _CliCloudError (CloudErrorInternal "stack did not exist after wait"))
+    pure
+    waitedOnStack
   logStack stackInfo

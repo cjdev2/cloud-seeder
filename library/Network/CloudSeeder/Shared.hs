@@ -115,15 +115,10 @@ getStack stackName = do
 mkFullStackName :: T.Text -> T.Text -> T.Text -> StackName
 mkFullStackName env appName stackName = StackName $ env <> "-" <> appName <> "-" <> stackName
 
-waitOnStack :: (AsCliError e, MonadCloud e m) => StackName -> m Stack
+waitOnStack :: (AsCliError e, MonadCloud e m) => StackName -> m ()
 waitOnStack stackName = do
   thisStack <- getStack stackName
   doWait thisStack
-  maybeStackInfo <- describeStack stackName
-  maybe
-    (throwing _CliCloudError (CloudErrorInternal "stack did not exist after wait"))
-    pure
-    maybeStackInfo
   where
     doWait :: (AsCliError e, MonadCloud e m) => Stack -> m ()
     doWait thisStack = do

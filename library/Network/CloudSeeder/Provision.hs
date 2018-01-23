@@ -59,7 +59,12 @@ provisionCommand mConfig nameToProvision env input = do
   _ <- runChangeSet csId'
 
   unless doNotWaitOption $ do
-    stackInfo <- waitOnStack fullStackName
+    waitOnStack fullStackName
+    provisionedStack <- describeStack fullStackName
+    stackInfo <- maybe
+      (throwing _CliCloudError (CloudErrorInternal "stack did not exist after wait"))
+      pure
+      provisionedStack
     logStack stackInfo
 
   let maybePolicyPath = stackToProvision ^. stackPolicyPath
