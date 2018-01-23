@@ -152,9 +152,14 @@ logChangeSet = logInfoN . render
       , "  ID: " <> cs ^. csId
       , "  Status: " <> T.pack (show $ cs ^. executionStatus)
       , "  Status Reason: N/A"
-      , "  Parameters: " <> T.unlines (map (T.stripEnd . renderParam) (cs ^. parameters))
-      , "  Changes: " <> T.unlines (map (T.stripEnd . renderChange) (cs ^. changes))
+      , "  Parameters: " <> renderList renderParam (cs ^. parameters)
+      , "  Changes: " <> renderList renderChange (cs ^. changes)
       ]
+
+    renderList :: (a -> T.Text) -> [a] -> T.Text
+    renderList renderer contents = T.unlines $ filter
+      (not . T.null)
+      (map (T.stripEnd . renderer) contents)
 
     renderParam :: Parameter -> T.Text
     renderParam (Parameter (key, val)) = case val of

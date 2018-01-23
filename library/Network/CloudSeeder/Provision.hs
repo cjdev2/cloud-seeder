@@ -8,7 +8,7 @@ import Control.Lens (Getting, Prism', (^.), (^..), (^?), _1, _2, _Wrapped, anyOf
 import Control.Monad (unless, when)
 import Control.Monad.Error.Lens (throwing)
 import Control.Monad.Except (MonadError(..), runExceptT)
-import Control.Monad.Logger (MonadLogger)
+import Control.Monad.Logger (MonadLogger, logInfoN)
 import Control.Monad.Reader (runReaderT)
 import Control.Monad.State (execStateT)
 import Data.Coerce (coerce)
@@ -41,6 +41,7 @@ provisionCommand mConfig nameToProvision env input = do
   let dependencies = takeWhile (\stak -> (stak ^. name) /= nameToProvision) (config ^.. stacks.each)
       appName = config ^. name
       fullStackName = mkFullStackName env appName nameToProvision
+      (StackName fullStackNameText) = fullStackName
       paramSources = (config ^. parameterSources) <> (stackToProvision ^. parameterSources)
       isGlobalStack = stackToProvision ^. globalStack
 
@@ -53,9 +54,11 @@ provisionCommand mConfig nameToProvision env input = do
 
   (doNotWaitOption, allParams) <- getParameters newStackOrPreviousValues config stackToProvision paramSources paramSpecs dependencies env appName input
 
+  logInfoN ("computing change set for stack " <> fullStackNameText <> "...")
   csId' <- computeChangeset fullStackName newStackOrPreviousValues templateBody allParams allTags
   csInfo <- describeChangeSet csId'
   logChangeSet csInfo
+  logInfoN ("executing change set for stack " <> fullStackNameText <> "...")
   _ <- runChangeSet csId'
 
   unless doNotWaitOption $ do

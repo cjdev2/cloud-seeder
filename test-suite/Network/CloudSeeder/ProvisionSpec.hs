@@ -138,7 +138,12 @@ spec =
               & stubFileSystemT
                 [("base.yaml", rootTemplate)]
               & stubEnvironmentT []
-              & stubLoggerT [expectedChangeSetInfo' "csid" "Available", expectedStackInfo "test-foo-base" "StackCreateComplete"]
+              & stubLoggerT
+                [ "computing change set for stack test-foo-base..."
+                , expectedChangeSetInfo' "csid" "Available"
+                , "executing change set for stack test-foo-base..."
+                , expectedStackInfo "test-foo-base" "StackCreateComplete"
+                ]
               & mockActionT
                 [ DescribeStack "test-foo-base" :-> Nothing
                 , ComputeChangeset "test-foo-base" CreateStack rootTemplate rootExpectedParams rootExpectedTags :-> "csid"
@@ -154,7 +159,12 @@ spec =
               & stubFileSystemT
                 [("base.yaml", rootTemplate)]
               & stubEnvironmentT []
-              & stubLoggerT [expectedChangeSetInfo' "csid" "Available", expectedStackInfo "test-foo-base" "StackCreateComplete"]
+              & stubLoggerT
+                [ "computing change set for stack test-foo-base..."
+                , expectedChangeSetInfo' "csid" "Available"
+                , "executing change set for stack test-foo-base..."
+                , expectedStackInfo "test-foo-base" "StackCreateComplete"
+                ]
               & mockActionT
                 [ DescribeStack "test-foo-base" :-> Nothing
                 , ComputeChangeset "test-foo-base" CreateStack rootTemplate rootExpectedParams rootExpectedTags :-> "csid"
@@ -187,7 +197,12 @@ spec =
               & stubFileSystemT
                 [("base.yaml", rootTemplate)]
               & stubEnvironmentT []
-              & stubLoggerT [expectedChangeSetInfo' "csid" "Available", expectedStackInfo "test-foo-base" "StackCreateComplete"]
+              & stubLoggerT
+                [ "computing change set for stack test-foo-base..."
+                , expectedChangeSetInfo' "csid" "Available"
+                , "executing change set for stack test-foo-base..."
+                , expectedStackInfo "test-foo-base" "StackCreateComplete"
+                ]
               & mockActionT
                 [ DescribeStack "test-foo-base" :-> Nothing
                 , ComputeChangeset "test-foo-base" CreateStack rootTemplate rootExpectedParams rootExpectedTags :-> "csid"
@@ -203,7 +218,12 @@ spec =
               & stubFileSystemT
                 [("base.yaml", rootTemplate)]
               & stubEnvironmentT []
-              & stubLoggerT [expectedChangeSetInfo' "csid" "Available", expectedStackInfo "test-foo-base" "StackCreateComplete"]
+              & stubLoggerT
+                [ "computing change set for stack test-foo-base..."
+                , expectedChangeSetInfo' "csid" "Available"
+                , "executing change set for stack test-foo-base..."
+                , expectedStackInfo "test-foo-base" "StackCreateComplete"
+                ]
               & mockActionT
                 [ DescribeStack "test-foo-base" :-> Nothing
                 , ComputeChangeset "test-foo-base" CreateStack rootTemplate rootExpectedParams rootExpectedTags :-> "csid"
@@ -258,7 +278,12 @@ spec =
               & stubFileSystemT
                 [("base.yaml", rootTemplate)]
               & stubEnvironmentT []
-              & stubLoggerT [expectedChangeSetInfo' "csid" "Available", expectedStackInfo "test-foo-base" "StackCreateComplete"]
+              & stubLoggerT
+                [ "computing change set for stack test-foo-base..."
+                , expectedChangeSetInfo' "csid" "Available"
+                , "executing change set for stack test-foo-base..."
+                , expectedStackInfo "test-foo-base" "StackCreateComplete"
+                ]
               & mockActionT
                 [ DescribeStack "test-foo-base" :-> Nothing
                 , ComputeChangeset "test-foo-base" CreateStack rootTemplate rootExpectedParams rootExpectedTags :-> "csid"
@@ -266,7 +291,8 @@ spec =
                 , RunChangeSet "csid" :-> ()
                 , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" CF.SSCreateInProgress)
                 , Wait StackCreateComplete (StackName "test-foo-base") :-> ()
-                , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" CF.SSCreateComplete) ]
+                , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" CF.SSCreateComplete)
+                ]
               & stubExceptT
 
           it "logs the changes in a remove change set before applying it" $ example $
@@ -274,7 +300,12 @@ spec =
               & stubFileSystemT
                 [("base.yaml", rootTemplate)]
               & stubEnvironmentT []
-              & stubLoggerT [expectedChangeSetInfo' "csid" "Available", expectedStackInfo "test-foo-base" "StackCreateComplete"]
+              & stubLoggerT
+                [ "computing change set for stack test-foo-base..."
+                , expectedChangeSetInfo' "csid" "Available"
+                , "executing change set for stack test-foo-base..."
+                , expectedStackInfo "test-foo-base" "StackCreateComplete"
+                ]
               & mockActionT
                 [ DescribeStack "test-foo-base" :-> Nothing
                 , ComputeChangeset "test-foo-base" CreateStack rootTemplate rootExpectedParams rootExpectedTags :-> "csid"
