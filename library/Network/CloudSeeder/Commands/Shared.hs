@@ -20,9 +20,10 @@ import Data.List (find)
 import Data.Semigroup ((<>))
 import Options.Applicative (ParserPrefs(..), ParserResult(..), execParserPure, renderFailure)
 
+import Network.CloudSeeder.Monads.AWS
+import Network.CloudSeeder.Monads.CLI
 import Network.CloudSeeder.Error
 import Network.CloudSeeder.DSL
-import Network.CloudSeeder.Interfaces
 import Network.CloudSeeder.Types
 
 import qualified Network.CloudSeeder.CommandLine as CL

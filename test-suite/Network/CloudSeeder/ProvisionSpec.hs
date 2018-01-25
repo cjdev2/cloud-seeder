@@ -8,10 +8,11 @@ import Data.Semigroup ((<>))
 import GHC.Exts (IsList(..))
 import Test.Hspec
 
+import Network.CloudSeeder.Commands.Provision
 import Network.CloudSeeder.DSL
 import Network.CloudSeeder.Error
-import Network.CloudSeeder.Interfaces
-import Network.CloudSeeder.Commands.Provision
+import Network.CloudSeeder.Monads.AWS
+import Network.CloudSeeder.Monads.FileSystem
 import Network.CloudSeeder.Types
 import Network.CloudSeeder.Test.Orphans ()
 import Network.CloudSeeder.Test.Stubs

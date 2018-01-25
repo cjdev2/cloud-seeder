@@ -2,11 +2,8 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE UndecidableInstances #-}
 
-module Network.CloudSeeder.Interfaces
-  ( MonadCli(..)
-  , getArgs'
-
-  , MonadCloud(..)
+module Network.CloudSeeder.Monads.AWS
+  ( MonadCloud(..)
   , computeChangeset'
   , deleteStack'
   , describeChangeSet'
@@ -23,23 +20,15 @@ module Network.CloudSeeder.Interfaces
   , HasCloudError(..)
   , AsCloudError(..)
   , Waiter(..)
-
-  , MonadEnvironment(..)
-
-  , MonadFileSystem(..)
-  , FileSystemError(..)
-  , readFile'
-  , HasFileSystemError(..)
-  , AsFileSystemError(..)
   ) where
 
 import Prelude hiding (readFile)
 
 import Control.Exception (throw)
-import Control.Lens (Traversal', (.~), (^.), (^?), (?~), _Just, only, to)
+import Control.Lens (Traversal', (.~), (^.), (^?), (?~), _Just, only)
 import Control.Lens.TH (makeClassy, makeClassyPrisms)
 import Control.Monad (void)
-import Control.Monad.Base (MonadBase, liftBase)
+import Control.Monad.Base (liftBase)
 import Control.Monad.Catch (MonadCatch, MonadThrow)
 import Control.Monad.Error.Lens (throwing)
 import Control.Monad.Except (ExceptT, MonadError)
@@ -56,7 +45,6 @@ import Data.Function ((&))
 import Data.Semigroup ((<>))
 import Data.UUID (toText)
 import Data.UUID.V4 (nextRandom)
-import GHC.IO.Exception (IOException(..), IOErrorType(..))
 import Network.AWS (AsError(..), ErrorMessage(..), HasEnv(..), serviceMessage)
 
 import qualified Control.Exception.Lens as IO
@@ -65,66 +53,13 @@ import qualified Data.ByteString as B
 import qualified Data.Map as M
 import qualified Data.Set as S
 import qualified Data.Text as T
-import qualified Data.Text.IO as T
 import qualified Data.Text.Conversions as T
 import qualified Network.AWS.CloudFormation as CF
 import qualified Network.AWS.KMS as KMS
 import qualified Network.AWS.S3 as S3
-import qualified System.Environment as IO
 
 import Network.CloudSeeder.Types
 
---------------------------------------------------------------------------------
--- | A class of monads that can access command-line arguments.
-
-class Monad m => MonadCli m where
-  getArgs :: m [String]
-  default getArgs :: (MonadTrans t, MonadCli m', m ~ t m') => m [String]
-  getArgs = lift getArgs
-
-getArgs' :: MonadBase IO m => m [String]
-getArgs' = liftBase IO.getArgs
-
-instance MonadCli m => MonadCli (ExceptT e m)
-instance MonadCli m => MonadCli (LoggingT m)
-instance MonadCli m => MonadCli (ReaderT r m)
-instance MonadCli m => MonadCli (StateT s m)
-instance (Monoid s, MonadCli m) => MonadCli (WriterT s m)
-
---------------------------------------------------------------------------------
-newtype FileSystemError
-  = FileNotFound T.Text
-  deriving (Eq, Show)
-
-makeClassy ''FileSystemError
-makeClassyPrisms ''FileSystemError
-
--- | A class of monads that can interact with the filesystem.
-class (AsFileSystemError e, MonadError e m) => MonadFileSystem e m | m -> e where
-  -- | Reads a file at the given path and returns its contents. If the file does
-  -- not exist, is not accessible, or is improperly encoded, this method throws
-  -- an exception.
-  readFile :: T.Text -> m T.Text
-
-  default readFile :: (MonadTrans t, MonadFileSystem e m', m ~ t m') => T.Text -> m T.Text
-  readFile = lift . readFile
-
-readFile' :: (AsFileSystemError e, MonadError e m, MonadBase IO m) => T.Text -> m T.Text
-readFile' p = do
-    let _IOException_NoSuchThing = IO._IOException . to isNoSuchThingIOError
-    x <- liftBase $ IO.catching_ _IOException_NoSuchThing (Just <$> T.readFile (T.unpack p)) (return Nothing)
-    maybe (throwing _FileNotFound p) return x
-  where
-    isNoSuchThingIOError IOError { ioe_type = NoSuchThing } = True
-    isNoSuchThingIOError _                                  = False
-
-instance MonadFileSystem e m => MonadFileSystem e (ExceptT e m)
-instance MonadFileSystem e m => MonadFileSystem e (LoggingT m)
-instance MonadFileSystem e m => MonadFileSystem e (ReaderT r m)
-instance MonadFileSystem e m => MonadFileSystem e (StateT s m)
-instance (MonadFileSystem e m, Monoid w) => MonadFileSystem e (WriterT w m)
-
---------------------------------------------------------------------------------
 -- | A class of monads that can interact with cloud deployments.
 data CharType
   = Alpha
@@ -422,20 +357,3 @@ instance MonadCloud e m => MonadCloud e (LoggingT m)
 instance MonadCloud e m => MonadCloud e (ReaderT r m)
 instance MonadCloud e m => MonadCloud e (StateT s m)
 instance (MonadCloud e m, Monoid w) => MonadCloud e (WriterT w m)
-
---------------------------------------------------------------------------------
--- | A class of monads that can access environment variables
-class Monad m => MonadEnvironment m where
-  getEnv :: T.Text -> m (Maybe T.Text)
-
-  default getEnv :: (MonadTrans t, MonadEnvironment m', m ~ t m') => T.Text -> m (Maybe T.Text)
-  getEnv = lift . getEnv
-
-instance MonadEnvironment IO where
-  getEnv = fmap (fmap T.pack) . IO.lookupEnv . T.unpack
-
-instance MonadEnvironment m => MonadEnvironment (ExceptT e m)
-instance MonadEnvironment m => MonadEnvironment (LoggingT m)
-instance MonadEnvironment m => MonadEnvironment (ReaderT r m)
-instance MonadEnvironment m => MonadEnvironment (StateT s m)
-instance (MonadEnvironment m, Monoid w) => MonadEnvironment (WriterT w m)

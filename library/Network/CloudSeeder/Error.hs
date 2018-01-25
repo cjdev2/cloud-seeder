@@ -14,7 +14,8 @@ import qualified Data.Text as T
 import qualified Data.Map as M
 import qualified Data.Set as S
 
-import Network.CloudSeeder.Interfaces
+import Network.CloudSeeder.Monads.AWS
+import Network.CloudSeeder.Monads.FileSystem
 import Network.CloudSeeder.Types
 
 data CliError

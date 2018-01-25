@@ -13,8 +13,8 @@ import qualified Data.Text as T
 
 import Network.CloudSeeder.DSL
 import Network.CloudSeeder.Error
-import Network.CloudSeeder.Interfaces
 import Network.CloudSeeder.Commands.Shared
+import Network.CloudSeeder.Monads.AWS
 import Network.CloudSeeder.Types (StackName(..))
 
 teardownCommand :: (AsCliError e, MonadCloud e m, MonadLogger m)
