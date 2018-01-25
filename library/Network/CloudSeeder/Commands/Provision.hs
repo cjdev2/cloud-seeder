@@ -1,4 +1,4 @@
-module Network.CloudSeeder.Provision
+module Network.CloudSeeder.Commands.Provision
   ( provisionCommand
   ) where
 
@@ -30,7 +30,7 @@ import Network.CloudSeeder.Error
 import Network.CloudSeeder.Interfaces
 import Network.CloudSeeder.Template
 import Network.CloudSeeder.Types
-import Network.CloudSeeder.Shared
+import Network.CloudSeeder.Commands.Shared
 
 provisionCommand :: (AsCliError e, MonadCloud e m, MonadFileSystem e m, MonadEnvironment m, MonadLogger m)
   => m (DeploymentConfiguration m) -> T.Text -> T.Text -> [String] -> m ()

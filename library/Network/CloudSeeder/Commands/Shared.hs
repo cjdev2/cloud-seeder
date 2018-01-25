@@ -1,4 +1,4 @@
-module Network.CloudSeeder.Shared
+module Network.CloudSeeder.Commands.Shared
   ( parseArgs
   , parseOpts
   , getEnvArg

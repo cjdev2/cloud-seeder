@@ -9,7 +9,7 @@ import Test.Hspec
 import Network.CloudSeeder.DSL
 import Network.CloudSeeder.Error
 import Network.CloudSeeder.Interfaces
-import Network.CloudSeeder.Teardown
+import Network.CloudSeeder.Commands.Teardown
 import Network.CloudSeeder.Test.Orphans ()
 import Network.CloudSeeder.Test.Stubs
 import Network.CloudSeeder.Types

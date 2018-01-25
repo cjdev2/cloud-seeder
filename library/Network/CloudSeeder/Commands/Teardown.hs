@@ -1,4 +1,4 @@
-module Network.CloudSeeder.Teardown
+module Network.CloudSeeder.Commands.Teardown
   ( teardownCommand
   ) where
 
@@ -14,7 +14,7 @@ import qualified Data.Text as T
 import Network.CloudSeeder.DSL
 import Network.CloudSeeder.Error
 import Network.CloudSeeder.Interfaces
-import Network.CloudSeeder.Shared
+import Network.CloudSeeder.Commands.Shared
 import Network.CloudSeeder.Types (StackName(..))
 
 teardownCommand :: (AsCliError e, MonadCloud e m, MonadLogger m)

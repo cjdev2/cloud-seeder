@@ -1,4 +1,4 @@
-module Network.CloudSeeder.Wait
+module Network.CloudSeeder.Commands.Wait
   ( waitCommand
   ) where
 
@@ -11,7 +11,7 @@ import qualified Data.Text as T
 import Network.CloudSeeder.DSL
 import Network.CloudSeeder.Error
 import Network.CloudSeeder.Interfaces
-import Network.CloudSeeder.Shared
+import Network.CloudSeeder.Commands.Shared
 
 waitCommand :: (AsCliError e, MonadCloud e m, MonadLogger m)
   => m (DeploymentConfiguration m) -> T.Text -> T.Text -> m ()

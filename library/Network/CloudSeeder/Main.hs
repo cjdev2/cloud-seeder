@@ -26,10 +26,10 @@ import qualified Network.CloudSeeder.CommandLine as CL
 import Network.CloudSeeder.DSL
 import Network.CloudSeeder.Error
 import Network.CloudSeeder.Interfaces
-import Network.CloudSeeder.Provision
-import Network.CloudSeeder.Teardown
-import Network.CloudSeeder.Shared
-import Network.CloudSeeder.Wait
+import Network.CloudSeeder.Commands.Provision
+import Network.CloudSeeder.Commands.Teardown
+import Network.CloudSeeder.Commands.Shared
+import Network.CloudSeeder.Commands.Wait
 
 --------------------------------------------------------------------------------
 -- IO wiring

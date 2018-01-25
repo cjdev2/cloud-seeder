@@ -11,7 +11,7 @@ import Test.Hspec
 import Network.CloudSeeder.DSL
 import Network.CloudSeeder.Error
 import Network.CloudSeeder.Interfaces
-import Network.CloudSeeder.Provision
+import Network.CloudSeeder.Commands.Provision
 import Network.CloudSeeder.Types
 import Network.CloudSeeder.Test.Orphans ()
 import Network.CloudSeeder.Test.Stubs
