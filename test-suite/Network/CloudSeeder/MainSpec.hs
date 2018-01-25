@@ -8,11 +8,11 @@ import Data.Semigroup ((<>))
 import Network.AWS.CloudFormation (StackStatus(..), ExecutionStatus(..))
 import Test.Hspec
 
+import Network.CloudSeeder.Commands.Shared
 import Network.CloudSeeder.DSL
 import Network.CloudSeeder.Error
-import Network.CloudSeeder.Interfaces
 import Network.CloudSeeder.Main
-import Network.CloudSeeder.Commands.Shared
+import Network.CloudSeeder.Monads.AWS
 import Network.CloudSeeder.Types
 import Network.CloudSeeder.Test.Stubs
 

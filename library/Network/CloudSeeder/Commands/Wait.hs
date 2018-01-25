@@ -8,10 +8,10 @@ import Control.Monad.Logger (MonadLogger)
 
 import qualified Data.Text as T
 
+import Network.CloudSeeder.Commands.Shared
 import Network.CloudSeeder.DSL
 import Network.CloudSeeder.Error
-import Network.CloudSeeder.Interfaces
-import Network.CloudSeeder.Commands.Shared
+import Network.CloudSeeder.Monads.AWS
 
 waitCommand :: (AsCliError e, MonadCloud e m, MonadLogger m)
   => m (DeploymentConfiguration m) -> T.Text -> T.Text -> m ()

@@ -26,7 +26,10 @@ import qualified Data.Map as M
 
 import Network.CloudSeeder.DSL
 import Network.CloudSeeder.Error
-import Network.CloudSeeder.Interfaces
+import Network.CloudSeeder.Monads.AWS
+import Network.CloudSeeder.Monads.CLI
+import Network.CloudSeeder.Monads.FileSystem
+import Network.CloudSeeder.Monads.Environment
 
 --------------------------------------------------------------------------------
 -- STUBS

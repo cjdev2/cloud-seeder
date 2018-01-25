@@ -25,12 +25,15 @@ import qualified Data.Text as T
 import qualified Data.Set as S
 
 import qualified Network.CloudSeeder.CommandLine as CL
+
+import Network.CloudSeeder.Commands.Shared
 import Network.CloudSeeder.DSL
 import Network.CloudSeeder.Error
-import Network.CloudSeeder.Interfaces
+import Network.CloudSeeder.Monads.AWS
+import Network.CloudSeeder.Monads.Environment
+import Network.CloudSeeder.Monads.FileSystem
 import Network.CloudSeeder.Template
 import Network.CloudSeeder.Types
-import Network.CloudSeeder.Commands.Shared
 
 provisionCommand :: (AsCliError e, MonadCloud e m, MonadFileSystem e m, MonadEnvironment m, MonadLogger m)
   => m (DeploymentConfiguration m) -> T.Text -> T.Text -> [String] -> m ()

@@ -23,13 +23,17 @@ import Prelude hiding (readFile)
 import qualified Data.Text.IO as T
 
 import qualified Network.CloudSeeder.CommandLine as CL
-import Network.CloudSeeder.DSL
-import Network.CloudSeeder.Error
-import Network.CloudSeeder.Interfaces
+
 import Network.CloudSeeder.Commands.Provision
 import Network.CloudSeeder.Commands.Teardown
 import Network.CloudSeeder.Commands.Shared
 import Network.CloudSeeder.Commands.Wait
+import Network.CloudSeeder.DSL
+import Network.CloudSeeder.Error
+import Network.CloudSeeder.Monads.AWS
+import Network.CloudSeeder.Monads.CLI
+import Network.CloudSeeder.Monads.Environment
+import Network.CloudSeeder.Monads.FileSystem
 
 --------------------------------------------------------------------------------
 -- IO wiring

@@ -44,8 +44,8 @@ import qualified Data.Set as S
 import qualified Data.Text as T
 
 import Network.CloudSeeder.Error
+import Network.CloudSeeder.Monads.AWS
 import Network.CloudSeeder.Types
-import Network.CloudSeeder.Interfaces
 
 data HookContext m = HookContext
   { _hookContextOutputs :: S.Set (T.Text, T.Text)

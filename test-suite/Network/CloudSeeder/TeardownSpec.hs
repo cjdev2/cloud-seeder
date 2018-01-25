@@ -6,10 +6,10 @@ import Control.Monad.Mock (WithResult(..))
 import Data.Functor.Identity (runIdentity)
 import Test.Hspec
 
+import Network.CloudSeeder.Commands.Teardown
 import Network.CloudSeeder.DSL
 import Network.CloudSeeder.Error
-import Network.CloudSeeder.Interfaces
-import Network.CloudSeeder.Commands.Teardown
+import Network.CloudSeeder.Monads.AWS
 import Network.CloudSeeder.Test.Orphans ()
 import Network.CloudSeeder.Test.Stubs
 import Network.CloudSeeder.Types

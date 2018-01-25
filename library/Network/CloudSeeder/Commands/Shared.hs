@@ -20,9 +20,10 @@ import Data.List (find)
 import Data.Semigroup ((<>))
 import Options.Applicative (ParserPrefs(..), ParserResult(..), execParserPure, renderFailure)
 
+import Network.CloudSeeder.Monads.AWS
+import Network.CloudSeeder.Monads.CLI
 import Network.CloudSeeder.Error
 import Network.CloudSeeder.DSL
-import Network.CloudSeeder.Interfaces
 import Network.CloudSeeder.Types
 
 import qualified Network.CloudSeeder.CommandLine as CL
@@ -64,7 +65,11 @@ parseArgs args = do
 getEnvArg :: (AsCliError e, MonadError e m, MonadCli m) => m T.Text
 getEnvArg = do
   args <- getArgs
-  (CL.ProvisionStack _ env) <- parseArgs args
+  command <- parseArgs args
+  let env = case command of
+        CL.ProvisionStack _ x -> x
+        CL.Wait _ x -> x
+        CL.TeardownStack _ x -> x
   pure env
 
 whenEnv :: (AsCliError e, MonadError e m, MonadCli m) => T.Text -> m () -> m ()
