@@ -747,6 +747,86 @@ spec =
               , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" CF.SSCreateComplete) ]
             & stubExceptT
 
+        it "setting a constant in the config should override previous values" $ do
+          let template' = "Parameters:\n"
+                      <> "  Env:\n"
+                      <> "    Type: String\n"
+                      <> "  Image:\n"
+                      <> "    Type: String\n"
+              mConfig' = pure $ DeploymentConfiguration "foo" []
+                [ StackConfiguration "base" [] [("Image", Constant "latest")] False [] Nothing ]
+                []
+              expectedParameters' = [ Parameter ("Env", Value "test"), Parameter ("Image", Value "latest") ]
+              expectedChangeSet' = ChangeSet
+                Nothing
+                "csid"
+                expectedParameters'
+                CF.Available
+                [ Add $ ChangeAdd "logid" (Just "physid") "AWS::Thing" ]
+          runSuccess
+            $ provisionCommand mConfig' "base" "test" ["provision", "base", "test"]
+            & stubFileSystemT
+              [ ("base.yaml", template') ]
+            & stubEnvironmentT []
+            & ignoreLoggerT
+            & mockActionT
+              [ DescribeStack "test-foo-base" :->
+                  Just (expectedStack "test-foo-base" CF.SSCreateComplete
+                    & parameters .~ ["Env", "Image"])
+              , ComputeChangeset
+                  "test-foo-base"
+                  (UpdateStack ["Env","Image"])
+                  template'
+                  (rootExpectedParams <> [("Image", UsePreviousValue)])
+                  rootExpectedTags
+                  :-> "csid"
+              , DescribeChangeSet "csid" :-> expectedChangeSet'
+              , RunChangeSet "csid" :-> ()
+              , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" CF.SSCreateInProgress)
+              , Wait StackCreateComplete (StackName "test-foo-base") :-> ()
+              , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" CF.SSCreateComplete) ]
+            & stubExceptT
+
+        it "setting and providing a flag in the config should override previous values" $ do
+          let template' = "Parameters:\n"
+                      <> "  Env:\n"
+                      <> "    Type: String\n"
+                      <> "  Image:\n"
+                      <> "    Type: String\n"
+              mConfig' = pure $ DeploymentConfiguration "foo" []
+                [ StackConfiguration "base" [] [("Image", Flag)] False [] Nothing ]
+                []
+              expectedParameters' = [ Parameter ("Env", Value "test"), Parameter ("Image", Value "latest") ]
+              expectedChangeSet' = ChangeSet
+                Nothing
+                "csid"
+                expectedParameters'
+                CF.Available
+                [ Add $ ChangeAdd "logid" (Just "physid") "AWS::Thing" ]
+          runSuccess
+            $ provisionCommand mConfig' "base" "test" ["provision", "base", "test", "--Image", "latest"]
+            & stubFileSystemT
+              [ ("base.yaml", template') ]
+            & stubEnvironmentT []
+            & ignoreLoggerT
+            & mockActionT
+              [ DescribeStack "test-foo-base" :->
+                  Just (expectedStack "test-foo-base" CF.SSCreateComplete
+                    & parameters .~ ["Env", "Image"])
+              , ComputeChangeset
+                  "test-foo-base"
+                  (UpdateStack ["Env","Image"])
+                  template'
+                  (rootExpectedParams <> [("Image", UsePreviousValue)])
+                  rootExpectedTags
+                  :-> "csid"
+              , DescribeChangeSet "csid" :-> expectedChangeSet'
+              , RunChangeSet "csid" :-> ()
+              , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" CF.SSCreateInProgress)
+              , Wait StackCreateComplete (StackName "test-foo-base") :-> ()
+              , DescribeStack "test-foo-base" :-> Just (expectedStack "test-foo-base" CF.SSCreateComplete) ]
+            & stubExceptT
+
       context "global stacks" $ do
         let mConfig' = pure $ DeploymentConfiguration "foo" []
               [ StackConfiguration "repo" [] [] True [] Nothing

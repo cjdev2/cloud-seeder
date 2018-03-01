@@ -65,7 +65,11 @@ parseArgs args = do
 getEnvArg :: (AsCliError e, MonadError e m, MonadCli m) => m T.Text
 getEnvArg = do
   args <- getArgs
-  (CL.ProvisionStack _ env) <- parseArgs args
+  command <- parseArgs args
+  let env = case command of
+        CL.ProvisionStack _ x -> x
+        CL.Wait _ x -> x
+        CL.TeardownStack _ x -> x
   pure env
 
 whenEnv :: (AsCliError e, MonadError e m, MonadCli m) => T.Text -> m () -> m ()
