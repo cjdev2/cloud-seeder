@@ -107,8 +107,7 @@ spec =
           it "runs onCreate actions after the stack is created" $ do
             let config' = deployment "foo" $
                   stack "base" $
-                    onCreate
-                      launchMissiles
+                    onCreate launchMissiles
 
             runSuccess $ cli config'
               & stubFileSystemT
@@ -135,9 +134,7 @@ spec =
 
           it "onCreate actions can set parameters" $ do
             let config' = deployment "foo" $
-                  stack "base" $
-                    onCreate $
-                      param "bucketName" "the-best-bucket"
+                  stack "base" $ onCreate $ param "bucketName" "the-best-bucket"
 
                 template' = "Parameters:\n"
                         <> "  Env:\n"
