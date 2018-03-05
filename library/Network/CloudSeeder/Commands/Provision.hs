@@ -51,7 +51,7 @@ provisionCommand mConfig nameToProvision env input = do
   assertMatchingGlobalness env nameToProvision isGlobalStack
 
   templateBody <- readFile $ nameToProvision <> ".yaml"
-  paramSpecs <- decodeTemplate templateBody
+  paramSpecs <- parseTemplate templateBody
   newStackOrPreviousValues <- getStackProvisionType fullStackName
   allTags <- getTags config stackToProvision env appName
 
@@ -92,8 +92,8 @@ getStackProvisionType stackName = do
     Nothing -> CreateStack
     Just s -> UpdateStack (s ^. parameters)
 
-decodeTemplate :: (AsCliError e, MonadError e m) => T.Text -> m (S.Set ParameterSpec)
-decodeTemplate templateBody = do
+parseTemplate :: (AsCliError e, MonadError e m) => T.Text -> m (S.Set ParameterSpec)
+parseTemplate templateBody = do
   let decodeOrFailure = decodeEither (encodeUtf8 templateBody) :: Either String Template
   template <- either (throwing _CliTemplateDecodeFail) return decodeOrFailure
   pure $ template ^. parameterSpecs._Wrapped
@@ -132,7 +132,8 @@ getParameters provisionType config stackToProvision paramSources allParamSpecs d
     envVars' <- envVars
 
     let fetchedParams = S.unions [envVars', flags', S.map (second Value) outputs']
-    let initialParams = S.insert ("Env", Value env) (constants <> fetchedParams)
+        initialParams = replaceUsePreviousValuesWherePossible $ S.insert ("Env", Value env) (constants <> fetchedParams)
+
     validInitialParams <- validateParameters paramSpecs initialParams
     postHookParams <- if provisionType == CreateStack
       then runCreateHooks validInitialParams outputs'
@@ -140,6 +141,8 @@ getParameters provisionType config stackToProvision paramSources allParamSpecs d
     assertNoMissingRequiredParameters postHookParams paramSpecs
     pure (doNotWaitOption, postHookParams)
   where
+    -- | Sets `Required` parameter specs to `Optional` where previous values
+    -- exist.
     setRequiredSpecsWithPreviousValuesToOptional :: S.Set ParameterSpec -> S.Set ParameterSpec
     setRequiredSpecsWithPreviousValuesToOptional pSpecs = do
       let previousParamKeys = provisionType ^. _UpdateStack
@@ -193,6 +196,17 @@ getParameters provisionType config stackToProvision paramSources allParamSpecs d
           let filteredDependencyOutputs :: [(T.Text, Maybe (M.Map T.Text T.Text))]
                 = second maybeStackToMaybeOutputs <$> filteredDependencyStacks
           pure filteredDependencyOutputs
+
+    -- | Removes parameters sourced from previous values where provided values
+    -- exist, to avoid spurious duplicate parameter errors.
+    replaceUsePreviousValuesWherePossible :: S.Set (T.Text, ParameterValue) -> S.Set (T.Text, ParameterValue)
+    replaceUsePreviousValuesWherePossible params =
+      let previousParams = params ^..* folded.filtered (has $ _2._UsePreviousValue)
+          providedParams = S.difference params previousParams
+          previousValuesToKeep = S.filter
+            (\(key, _) -> not $ key `S.member` S.map fst providedParams)
+            previousParams
+      in S.union previousValuesToKeep providedParams
 
     validateParameters :: S.Set ParameterSpec -> S.Set (T.Text, ParameterValue) -> m (M.Map T.Text ParameterValue)
     validateParameters paramSpecs params = do
