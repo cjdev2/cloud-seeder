@@ -32,6 +32,7 @@ import Network.CloudSeeder.Error
 import Network.CloudSeeder.Monads.AWS
 import Network.CloudSeeder.Monads.Environment
 import Network.CloudSeeder.Monads.FileSystem
+import Network.CloudSeeder.Render
 import Network.CloudSeeder.Template
 import Network.CloudSeeder.Types
 
@@ -60,7 +61,7 @@ provisionCommand mConfig nameToProvision env input = do
   logInfoN ("computing change set for stack " <> fullStackNameText <> "...")
   csId' <- computeChangeset fullStackName newStackOrPreviousValues templateBody allParams allTags
   csInfo <- describeChangeSet csId'
-  logChangeSet csInfo
+  logInfoN $ render csInfo
   logInfoN ("executing change set for stack " <> fullStackNameText <> "...")
   _ <- runChangeSet csId'
 
@@ -71,7 +72,7 @@ provisionCommand mConfig nameToProvision env input = do
       (throwing _CliCloudError (CloudErrorInternal "stack did not exist after wait"))
       pure
       provisionedStack
-    logStack stackInfo
+    logInfoN $ render stackInfo
 
   let maybePolicyPath = stackToProvision ^. stackPolicyPath
   case maybePolicyPath of

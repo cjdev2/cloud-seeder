@@ -1,4 +1,4 @@
-module Network.CloudSeeder.ProvisionSpec (spec) where
+module Network.CloudSeeder.Commands.ProvisionSpec (spec) where
 
 import Control.Lens ((&), (.~), review)
 import Control.Monad.Except (ExceptT, runExceptT)
@@ -143,7 +143,7 @@ spec =
                 [ "computing change set for stack test-foo-base..."
                 , expectedChangeSetInfo' "csid" "Available"
                 , "executing change set for stack test-foo-base..."
-                , expectedStackInfo "test-foo-base" "StackCreateComplete"
+                , expectedStackInfo "test-foo-base" "CREATE_COMPLETE"
                 ]
               & mockActionT
                 [ DescribeStack "test-foo-base" :-> Nothing
@@ -164,7 +164,7 @@ spec =
                 [ "computing change set for stack test-foo-base..."
                 , expectedChangeSetInfo' "csid" "Available"
                 , "executing change set for stack test-foo-base..."
-                , expectedStackInfo "test-foo-base" "StackCreateComplete"
+                , expectedStackInfo "test-foo-base" "CREATE_COMPLETE"
                 ]
               & mockActionT
                 [ DescribeStack "test-foo-base" :-> Nothing
@@ -202,7 +202,7 @@ spec =
                 [ "computing change set for stack test-foo-base..."
                 , expectedChangeSetInfo' "csid" "Available"
                 , "executing change set for stack test-foo-base..."
-                , expectedStackInfo "test-foo-base" "StackCreateComplete"
+                , expectedStackInfo "test-foo-base" "CREATE_COMPLETE"
                 ]
               & mockActionT
                 [ DescribeStack "test-foo-base" :-> Nothing
@@ -223,7 +223,7 @@ spec =
                 [ "computing change set for stack test-foo-base..."
                 , expectedChangeSetInfo' "csid" "Available"
                 , "executing change set for stack test-foo-base..."
-                , expectedStackInfo "test-foo-base" "StackCreateComplete"
+                , expectedStackInfo "test-foo-base" "CREATE_COMPLETE"
                 ]
               & mockActionT
                 [ DescribeStack "test-foo-base" :-> Nothing
@@ -283,7 +283,7 @@ spec =
                 [ "computing change set for stack test-foo-base..."
                 , expectedChangeSetInfo' "csid" "Available"
                 , "executing change set for stack test-foo-base..."
-                , expectedStackInfo "test-foo-base" "StackCreateComplete"
+                , expectedStackInfo "test-foo-base" "CREATE_COMPLETE"
                 ]
               & mockActionT
                 [ DescribeStack "test-foo-base" :-> Nothing
@@ -305,7 +305,7 @@ spec =
                 [ "computing change set for stack test-foo-base..."
                 , expectedChangeSetInfo' "csid" "Available"
                 , "executing change set for stack test-foo-base..."
-                , expectedStackInfo "test-foo-base" "StackCreateComplete"
+                , expectedStackInfo "test-foo-base" "CREATE_COMPLETE"
                 ]
               & mockActionT
                 [ DescribeStack "test-foo-base" :-> Nothing

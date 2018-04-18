@@ -3,8 +3,6 @@ module Network.CloudSeeder.Commands.Shared
   , parseOpts
   , getEnvArg
   , whenEnv
-  , logStack
-  , logChangeSet
   , getStack
   , mkFullStackName
   , waitOnStack
@@ -15,7 +13,6 @@ import Control.Lens ((^.), has, only, to)
 import Control.Monad (when)
 import Control.Monad.Error.Lens (throwing)
 import Control.Monad.Except (MonadError)
-import Control.Monad.Logger (MonadLogger, logInfoN)
 import Data.List (find)
 import Data.Semigroup ((<>))
 import Options.Applicative (ParserPrefs(..), ParserResult(..), execParserPure, renderFailure)
@@ -27,9 +24,8 @@ import Network.CloudSeeder.DSL
 import Network.CloudSeeder.Types
 
 import qualified Network.CloudSeeder.CommandLine as CL
-import qualified Data.Text as T
-import qualified Data.Map as M
 import qualified Data.Set as S
+import qualified Data.Text as T
 import qualified Network.AWS.CloudFormation as CF
 
 parseOpts :: (AsCliError e, MonadError e m) => S.Set ParameterSpec -> [String] -> m CL.Options
@@ -77,40 +73,6 @@ whenEnv env x = do
   envToProvision <- getEnvArg
   when (envToProvision == env) x
 
-logStack :: MonadLogger m => Stack -> m ()
-logStack = logInfoN . render
-  where
-    render :: Stack -> T.Text
-    render s = T.unlines
-      [ "Stack Info:"
-      , "  name: " <> s^.name
-      , "  status: " <> renderStatus (s^.stackStatus)
-      , "  outputs: " <> "\n" <> renderOutputs (s^.outputs)
-      ]
-    renderStatus :: CF.StackStatus -> T.Text
-    renderStatus s = case s of
-        CF.SSCreateComplete -> "StackCreateComplete"
-        CF.SSCreateFailed -> "StackCreateComplete"
-        CF.SSCreateInProgress -> "StackCreateComplete"
-        CF.SSDeleteComplete -> "StackDeleteComplete"
-        CF.SSDeleteFailed -> "StackDeleteComplete"
-        CF.SSDeleteInProgress -> "StackDeleteComplete"
-        CF.SSRollbackComplete -> "StackUpdateComplete"
-        CF.SSRollbackFailed -> "StackUpdateComplete"
-        CF.SSRollbackInProgress -> "StackUpdateComplete"
-        CF.SSUpdateComplete -> "StackUpdateComplete"
-        CF.SSUpdateCompleteCleanupInProgress -> "StackUpdateComplete"
-        CF.SSUpdateInProgress -> "StackUpdateComplete"
-        CF.SSUpdateRollbackComplete -> "StackUpdateComplete"
-        CF.SSUpdateRollbackCompleteCleanupInProgress -> "StackUpdateComplete"
-        CF.SSUpdateRollbackFailed -> "StackUpdateComplete"
-        CF.SSUpdateRollbackInProgress -> "StackUpdateComplete"
-        CF.SSReviewInProgress -> "ReviewInProgress"
-    renderOutputs :: M.Map T.Text T.Text -> T.Text
-    renderOutputs os = T.unlines (renderOutput <$> M.toList os)
-    renderOutput :: (T.Text, T.Text) -> T.Text
-    renderOutput (k,v) = "    " <> k <> ": " <> v
-
 getStack :: (AsCliError e, MonadCloud e m) => StackName -> m Stack
 getStack stackName = do
   maybeStack <- describeStack stackName
@@ -148,68 +110,6 @@ waitOnStack stackName = do
         CF.SSReviewInProgress -> throwing _CliStackNeedsChangeSetReview s
           where (StackName s) = stackName
 
-logChangeSet :: MonadLogger m => ChangeSet -> m ()
-logChangeSet = logInfoN . render
-  where
-    render :: ChangeSet -> T.Text
-    render cs = T.unlines $ T.stripEnd <$>
-      [ "Change Set Info:"
-      , "  ID: " <> cs ^. csId
-      , "  Status: " <> T.pack (show $ cs ^. executionStatus)
-      , "  Status Reason: N/A"
-      , "  Parameters: " <> renderList renderParam (cs ^. parameters)
-      , "  Changes: " <> renderList renderChange (cs ^. changes)
-      ]
-
-    renderList :: (a -> T.Text) -> [a] -> T.Text
-    renderList renderer contents = T.unlines $ filter
-      (not . T.null)
-      (map (T.stripEnd . renderer) contents)
-
-    renderParam :: Parameter -> T.Text
-    renderParam (Parameter (key, val)) = case val of
-      Value v -> f v
-      UsePreviousValue -> f "UsePreviousValue"
-      where
-        f v = "\n    " <> key <> ": " <> v
-
-    renderChange :: Change -> T.Text
-    renderChange (Add c) = T.unlines $ T.stripEnd <$>
-      [ "\n    Add: "
-      , "      Logical ID: " <> c ^. logicalId
-      , "      Physical ID: " <> T.pack (show $ c ^. physicalId)
-      , "      Resource Type: " <> c ^. resourceType ]
-    renderChange (Remove c) = T.unlines $ T.stripEnd <$>
-      [ "\n    Remove: "
-      , "      Logical ID: " <> c ^. logicalId
-      , "      Physical ID: " <> T.pack (show $ c ^. physicalId)
-      , "      Resource Type: " <> c ^. resourceType ]
-    renderChange (Modify c) = T.unlines $ T.stripEnd <$>
-      [ "\n    Modify: "
-      , "      Logical ID: " <> c ^. logicalId
-      , "      Physical ID: " <> T.pack (show $ c ^. physicalId)
-      , "      Resource Type: " <> c ^. resourceType
-      , "      Scope: " <> T.unlines (map renderScope (c ^. scope ))
-      , "      Details: " <> T.unlines (map renderDetails (c ^. details))
-      , "      Replacement: " <> renderReplacement (c ^. replacement) ]
-      where
-        renderScope :: CF.ResourceAttribute -> T.Text
-        renderScope = T.stripEnd . T.pack . show
-        renderDetails :: CF.ResourceChangeDetail -> T.Text
-        renderDetails d = T.unlines $ T.stripEnd <$>
-          [ "\n        Causing Entity: " <> T.pack (show $ d ^. CF.rcdCausingEntity)
-          , "        Change Source: " <> T.pack (show $ d ^. CF.rcdChangeSource)
-          , "        Evaluation: " <> T.pack (show $ d ^. CF.rcdEvaluation)
-          , "        Target: " <> maybe "Nothing" renderTarget (d ^. CF.rcdTarget)
-          ]
-        renderReplacement :: CF.Replacement -> T.Text
-        renderReplacement = T.stripEnd . T.pack . show
-        renderTarget :: CF.ResourceTargetDefinition -> T.Text
-        renderTarget t = T.unlines $ (T.stripEnd . T.pack) <$>
-          [ "\n          Attribute: " <> show (t ^. CF.rtdAttribute)
-          , "          Requires Recreation: " <> show (t ^. CF.rtdRequiresRecreation)
-          , "          Name: " <> show (t ^. CF.rtdName)
-          ]
 
 getStackFromConfig
   :: (AsCliError e, MonadError e m)

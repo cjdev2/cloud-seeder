@@ -4,7 +4,7 @@ module Network.CloudSeeder.Commands.Wait
 
 import Control.Lens ((^.))
 import Control.Monad.Error.Lens (throwing)
-import Control.Monad.Logger (MonadLogger)
+import Control.Monad.Logger (MonadLogger, logInfoN)
 
 import qualified Data.Text as T
 
@@ -12,6 +12,7 @@ import Network.CloudSeeder.Commands.Shared
 import Network.CloudSeeder.DSL
 import Network.CloudSeeder.Error
 import Network.CloudSeeder.Monads.AWS
+import Network.CloudSeeder.Render (render)
 
 waitCommand :: (AsCliError e, MonadCloud e m, MonadLogger m)
   => m (DeploymentConfiguration m) -> T.Text -> T.Text -> m ()
@@ -25,4 +26,4 @@ waitCommand mConfig nameToWaitFor env = do
     (throwing _CliCloudError (CloudErrorInternal "stack did not exist after wait"))
     pure
     waitedOnStack
-  logStack stackInfo
+  logInfoN $ render stackInfo

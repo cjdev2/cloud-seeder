@@ -1,4 +1,4 @@
-module Network.CloudSeeder.TeardownSpec (spec) where
+module Network.CloudSeeder.Commands.TeardownSpec (spec) where
 
 import Control.Lens ((&), review)
 import Control.Monad.Except (ExceptT, runExceptT)

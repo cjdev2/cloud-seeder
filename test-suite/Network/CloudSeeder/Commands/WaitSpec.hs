@@ -1,4 +1,4 @@
-module Network.CloudSeeder.WaitSpec (spec) where
+module Network.CloudSeeder.Commands.WaitSpec (spec) where
 
 import Control.Lens ((&), review)
 import Control.Monad.Except (ExceptT, runExceptT)
@@ -53,7 +53,7 @@ spec =
     describe "waitCommand" $ do
       it "waits on a stack, then logs info about it" $
         runSuccess $ waitCommand mConfig "base" "test"
-          & stubLoggerT [expectedStackLog "test-foo-base" "StackCreateComplete"]
+          & stubLoggerT [expectedStackLog "test-foo-base" "CREATE_COMPLETE"]
           & mockActionT
             [ DescribeStack (StackName testFooBase) :-> Just (expectedStack testFooBase SSCreateInProgress)
             , Wait StackCreateComplete (StackName testFooBase) :-> ()
