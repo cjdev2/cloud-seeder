@@ -60,7 +60,7 @@ provisionCommand mConfig nameToProvision env input = do
   logInfoN ("computing change set for stack " <> fullStackNameText <> "...")
   csId' <- computeChangeset fullStackName newStackOrPreviousValues templateBody allParams allTags
   csInfo <- describeChangeSet csId'
-  logChangeSet csInfo
+  logInfoN =<< toYamlText csInfo "Change Set"
   logInfoN ("executing change set for stack " <> fullStackNameText <> "...")
   _ <- runChangeSet csId'
 
@@ -71,7 +71,8 @@ provisionCommand mConfig nameToProvision env input = do
       (throwing _CliCloudError (CloudErrorInternal "stack did not exist after wait"))
       pure
       provisionedStack
-    logStack stackInfo
+    logInfoN =<< toYamlText stackInfo "Stack"
+
 
   let maybePolicyPath = stackToProvision ^. stackPolicyPath
   case maybePolicyPath of

@@ -4,7 +4,7 @@ module Network.CloudSeeder.Commands.Wait
 
 import Control.Lens ((^.))
 import Control.Monad.Error.Lens (throwing)
-import Control.Monad.Logger (MonadLogger)
+import Control.Monad.Logger (MonadLogger, logInfoN)
 
 import qualified Data.Text as T
 
@@ -25,4 +25,4 @@ waitCommand mConfig nameToWaitFor env = do
     (throwing _CliCloudError (CloudErrorInternal "stack did not exist after wait"))
     pure
     waitedOnStack
-  logStack stackInfo
+  logInfoN =<< toYamlText stackInfo "Stack"

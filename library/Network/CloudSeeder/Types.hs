@@ -57,6 +57,7 @@ import Control.Applicative ((<|>))
 import Control.DeepSeq (NFData)
 import Control.Lens (Lens', lens, makeFields, makeClassyPrisms, makeWrapped)
 import Data.Aeson.Types (typeMismatch)
+import Data.Aeson.TH (Options(..), deriveJSON, deriveToJSON)
 import Data.String (IsString)
 import Data.Yaml (FromJSON(..), Parser, Value(..), (.:?))
 import GHC.Generics (Generic)
@@ -68,9 +69,13 @@ import qualified Data.Text as T
 import qualified Data.Set as S
 import qualified Network.AWS.CloudFormation as CF
 
+import Network.CloudSeeder.Orphans ()
+import Network.CloudSeeder.TH
+
 newtype StackName = StackName T.Text
   deriving (Eq, Show, Generic, IsString)
 instance NFData StackName
+$(deriveJSON capTagOptions ''StackName)
 
 data Stack = Stack
   { _stackStackStatusReason :: Maybe T.Text
@@ -83,6 +88,7 @@ data Stack = Stack
   }
   deriving (Eq, Show, Ord)
 makeFields ''Stack
+$(deriveJSON capTagOptions{fieldLabelModifier = drop 6} ''Stack)
 
 minimalStack :: T.Text -> CF.StackStatus -> Stack
 minimalStack name' stackStatus' = Stack Nothing Nothing name' mempty mempty Nothing stackStatus'
@@ -94,24 +100,28 @@ data ParameterSource
   | Outputs
   deriving (Eq, Show, Ord)
 makeClassyPrisms ''ParameterSource
+$(deriveJSON capTagOptions ''ParameterSource)
 
 data ProvisionType
   = CreateStack
   | UpdateStack (S.Set T.Text) -- ^ @'Update' "list of parameter keys"@
   deriving (Eq, Show, Ord)
 makeClassyPrisms ''ProvisionType
+$(deriveJSON capTagOptions ''ProvisionType)
 
 data ParameterValue
   = UsePreviousValue
   | Value T.Text
   deriving (Eq, Show, Ord)
 makeClassyPrisms ''ParameterValue
+$(deriveJSON capTagOptions ''ParameterValue)
 
 data ParameterSpec
   = Required T.Text
   | Optional T.Text ParameterValue
   deriving (Eq, Show, Ord)
 makeClassyPrisms ''ParameterSpec
+$(deriveJSON capTagOptions ''ParameterSpec)
 
 parameterKey :: Lens' ParameterSpec T.Text
 parameterKey = lens get set
@@ -125,6 +135,7 @@ parameterKey = lens get set
 newtype ParameterSpecs = ParameterSpecs (S.Set ParameterSpec)
   deriving (Eq, Show, Ord)
 makeWrapped ''ParameterSpecs
+$(deriveToJSON capTagOptions ''ParameterSpecs)
 
 instance FromJSON ParameterSpecs where
   parseJSON (Object pSpecs) =
@@ -142,9 +153,11 @@ instance FromJSON ParameterSpecs where
 
 newtype ParameterMap = ParameterMap (M.Map T.Text (ParameterSource, T.Text))
   deriving (Eq, Show)
+$(deriveJSON capTagOptions ''ParameterMap)
 
 newtype Parameter = Parameter (T.Text, ParameterValue)
   deriving (Eq, Show, Ord)
+$(deriveJSON capTagOptions ''Parameter)
 
 data ChangeAdd = ChangeAdd
   { _changeAddLogicalId :: T.Text
@@ -152,6 +165,7 @@ data ChangeAdd = ChangeAdd
   , _changeAddResourceType :: T.Text
   } deriving (Eq, Show)
 makeFields ''ChangeAdd
+$(deriveJSON capTagOptions{fieldLabelModifier = drop 10} ''ChangeAdd)
 
 data ChangeModify = ChangeModify
   { _changeModifyLogicalId :: T.Text
@@ -162,6 +176,7 @@ data ChangeModify = ChangeModify
   , _changeModifyReplacement :: CF.Replacement
   } deriving (Eq, Show)
 makeFields ''ChangeModify
+$(deriveJSON capTagOptions{fieldLabelModifier = drop 13} ''ChangeModify)
 
 data ChangeRemove = ChangeRemove
   { _changeRemoveLogicalId :: T.Text
@@ -169,6 +184,7 @@ data ChangeRemove = ChangeRemove
   , _changeRemoveResourceType :: T.Text
   } deriving (Eq, Show)
 makeFields ''ChangeRemove
+$(deriveJSON capTagOptions{fieldLabelModifier = drop 13} ''ChangeRemove)
 
 data Change
   = Add ChangeAdd
@@ -176,6 +192,7 @@ data Change
   | Remove ChangeRemove
   deriving (Show, Eq)
 makeClassyPrisms ''Change
+$(deriveJSON capTagOptions ''Change)
 
 data ChangeSet = ChangeSet
   { _changeSetStatusReason :: Maybe T.Text
@@ -186,6 +203,7 @@ data ChangeSet = ChangeSet
   }
   deriving (Eq, Show)
 makeFields ''ChangeSet
+$(deriveJSON capTagOptions{fieldLabelModifier = drop 10} ''ChangeSet)
 
 minimalChangeSet :: T.Text -> ExecutionStatus -> ChangeSet
 minimalChangeSet csid execStatus = ChangeSet Nothing csid [] execStatus []

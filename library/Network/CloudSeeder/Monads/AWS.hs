@@ -280,7 +280,7 @@ runChangeSet' csId' = do
       Left _ -> do
         changeSet <- describeChangeSet csId'
         case changeSet ^. changes of
-          [] -> logInfoN "change set contains no changes"
+          [] -> logInfoN "change set contains no changes -- aborting change set execution"
           _ -> throwing _CloudErrorInternal ("executeChangeSet returned invalidChangeSetStatus error for changeset id " <> csId')
       Right _ -> pure ()
 
