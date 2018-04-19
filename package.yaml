@@ -4,14 +4,14 @@ category: Cloud
 synopsis: A tool for interacting with AWS CloudFormation
 description: |
   This package provides a DSL for creating deployment configurations, as well
-  as an interpreter that reads deployment configurations in order to deploy
+  as an interpreter that reads deployment configurations in order to provision
   application stacks to AWS CloudFormation using Amazonka.
 
-copyright: 2017 CJ Affiliate by Conversant
+copyright: 2018 CJ Affiliate by Conversant
 license: ISC
 license-file: LICENSE
-author: Alexis King <lexi.lambda@gmail.com>, Michael Arnold <michaelaarnold@gmail.com>
-maintainer: Alexis King <lexi.lambda@gmail.com>, Michael Arnold <michaelaarnold@gmail.com>
+author: Alexis King <lexi.lambda@gmail.com>, Michael Adlai Arnold <michaelaarnold@gmail.com>
+maintainer: Alexis King <lexi.lambda@gmail.com>, Michael Adlai Arnold <michaelaarnold@gmail.com>
 github: cjdev/cloud-seeder
 
 extra-source-files:
