@@ -8,6 +8,7 @@ import Data.Char (toUpper)
 
 capitalize :: String -> String
 capitalize (c:cs) = toUpper c : cs
+capitalize _ = ""
 
 capTagOptions :: Options
 capTagOptions = defaultOptions{constructorTagModifier = capitalize}
