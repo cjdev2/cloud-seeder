@@ -1,3 +1,19 @@
+## 0.2.0.0 (April 19th, 2018)
+
+### New Features
+
+- Added `wait` command to wait until stack is in a stable state
+- Added `teardown` command to destroy stack
+- Logging now uses ToJSON instances to provide accurate and efficient YAML
+- Stack policy can now be set in deployment configurations using `policy`
+- CLI gives useful information about stacks when actions complete
+- Already-provisioned stack parameters default to previously used values
+
+### Bugfixes and Minor Changes
+
+- Stability and error-handling improvements
+- onCreate hooks run only when creating, rather than updating
+
 ## 0.1.0.0 (July 26th, 2017)
 
 ### Breaking Changes
