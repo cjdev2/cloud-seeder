@@ -79,7 +79,7 @@ parseOptions :: S.Set ParameterSpec -> ParserInfo Options
 parseOptions = program . PhaseOptions
 
 program :: ParsingPhase r -> ParserInfo r
-program phase = info (helper <*> provision phase)
+program phase = info (helper <*> parseCmd phase)
   (fullDesc <> progDesc "Manage stacks in CloudFormation")
 
 -- | Represents the current “parsing phase”, as described in the module
@@ -89,14 +89,14 @@ data ParsingPhase r where
   PhaseArguments :: ParsingPhase Command
   PhaseOptions :: S.Set ParameterSpec -> ParsingPhase Options
 
--- | Parser for the 'provision' subcommand, which parses a 'ProvisionStack'
--- value if it succeeds.
+-- | Parser for stack commands--parses 'ProvisionStack', 'TeardownStack', or
+-- 'Wait' values if successful.
 --
--- This parsers has two “phases” of parsing, as noted in the module
+-- This parser has two “phases” of parsing, as noted in the module
 -- documentation for 'Network.CloudSeeder.CommandLine'. This is reflected in the
 -- first argument, which also controls the result of the parser.
-provision :: ParsingPhase r -> Parser r
-provision phase = subparser
+parseCmd :: ParsingPhase r -> Parser r
+parseCmd phase = subparser
   $ provisionCmd
   <> waitCmd
   <> teardownCmd
