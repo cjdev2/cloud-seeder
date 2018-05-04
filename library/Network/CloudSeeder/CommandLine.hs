@@ -69,17 +69,17 @@ makeFields ''Options
 -- | A parser that corresponds to the first “parsing phase” for the @provision@
 -- subcommand, as described in the module documentation for
 -- 'Network.CloudSeeder.CommandLine'.
-parseArguments :: ParserInfo Command
-parseArguments = program PhaseArguments
+parseArguments :: [T.Text] -> ParserInfo Command
+parseArguments configStacks = program PhaseArguments configStacks
 
 -- | A parser that corresponds to the second “parsing phase” for the @provision@
 -- subcommand, as described in the module documentation for
 -- 'Network.CloudSeeder.CommandLine'.
 parseOptions :: S.Set ParameterSpec -> ParserInfo Options
-parseOptions = program . PhaseOptions
+parseOptions paramSpecs = program (PhaseOptions paramSpecs) []
 
-program :: ParsingPhase r -> ParserInfo r
-program phase = info (helper <*> parseCmd phase)
+program :: ParsingPhase r -> [T.Text] -> ParserInfo r
+program phase configStacks = info (helper <*> parseCmd phase configStacks)
   (fullDesc <> progDesc "Manage stacks in CloudFormation")
 
 -- | Represents the current “parsing phase”, as described in the module
@@ -95,22 +95,23 @@ data ParsingPhase r where
 -- This parser has two “phases” of parsing, as noted in the module
 -- documentation for 'Network.CloudSeeder.CommandLine'. This is reflected in the
 -- first argument, which also controls the result of the parser.
-parseCmd :: ParsingPhase r -> Parser r
-parseCmd phase = subparser
+parseCmd :: ParsingPhase r -> [T.Text] -> Parser r
+parseCmd phase configStacks = subparser
   $ provisionCmd
   <> waitCmd
   <> teardownCmd
   where
-    provisionCmd = command "provision" $ info (parser ProvisionStack) provisionMod
-    teardownCmd = command "teardown" $ info (parser TeardownStack) (progDesc "Teardown a stack in an environment")
-    waitCmd = command "wait" $ info (parser Wait) (progDesc "Wait for stack to reach a stable state")
+    provisionCmd = command "provision" $ info (parser ProvisionStack) $ commandMod "Provision a stack in an environment"
+    teardownCmd = command "teardown" $ info (parser TeardownStack) $ commandMod "Teardown a stack in an environment"
+    waitCmd = command "wait" $ info (parser Wait) $ commandMod "Wait for stack to reach a stable state"
 
     -- When parsing arguments, we want to ignore options. Using 'forwardOptions'
     -- treats them as positional arguments rather than outright ignoring them,
     -- but that’s good enough for our purposes.
-    provisionMod = progDesc "Provision a stack in an environment" <> case phase of
-      PhaseArguments -> forwardOptions
+    commandMod description = progDesc description <> case phase of
+      PhaseArguments -> forwardOptions <> footer configStacksHelp
       PhaseOptions _ -> mempty
+    configStacksHelp = "STACK can be one of: " <> T.unpack (T.intercalate ", " configStacks)
 
     parser cmd = case phase of
         PhaseArguments -> commandParser cmd <* ignoreArguments
