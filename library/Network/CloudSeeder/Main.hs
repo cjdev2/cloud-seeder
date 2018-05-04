@@ -8,6 +8,7 @@ module Network.CloudSeeder.Main
   , cliIO
   ) where
 
+import Control.Lens
 import Control.Monad.Base (MonadBase)
 import Control.Monad.Catch (MonadCatch, MonadThrow)
 import Control.Monad.Except (MonadError(..), ExceptT, runExceptT)
@@ -80,7 +81,9 @@ cli
   => m (DeploymentConfiguration m) -> m ()
 cli mConfig = do
   input <- getArgs
-  cmd <- parseArgs input
+  config <- mConfig
+  let configStacks = config^.stacks^..traverse.name
+  cmd <- parseArgs input configStacks
   case cmd of
     CL.Wait nameToWaitFor env -> waitCommand mConfig nameToWaitFor env
     CL.ProvisionStack nameToProvision env -> provisionCommand mConfig nameToProvision env input

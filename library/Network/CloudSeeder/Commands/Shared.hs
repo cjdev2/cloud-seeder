@@ -48,8 +48,8 @@ parseOpts pSpecs opts = do
     Failure f -> throwing _CliParseFailure (T.pack . fst $ renderFailure f "cloud-seeder")
     CompletionInvoked _ -> error "internal error--bash completion invoked; bash completions not supported"
 
-parseArgs :: (AsCliError e, MonadError e m) => [String] -> m CL.Command
-parseArgs args = do
+parseArgs :: (AsCliError e, MonadError e m) => [String] -> [T.Text] -> m CL.Command
+parseArgs args configStacks = do
   let prefs = ParserPrefs
         { prefMultiSuffix = ""
         , prefDisambiguate = True
@@ -58,7 +58,7 @@ parseArgs args = do
         , prefBacktrack = False
         , prefColumns = 80
         }
-  case execParserPure prefs CL.parseArguments args of
+  case execParserPure prefs (CL.parseArguments configStacks) args of
     Success a -> pure a
     Failure f -> throwing _CliParseFailure (T.pack . fst $ renderFailure f "cloud-seeder")
     CompletionInvoked _ -> error "internal error--bash completion invoked; bash completions not supported"
@@ -66,7 +66,7 @@ parseArgs args = do
 getEnvArg :: (AsCliError e, MonadError e m, MonadCli m) => m T.Text
 getEnvArg = do
   args <- getArgs
-  command <- parseArgs args
+  command <- parseArgs args []
   let env = case command of
         CL.ProvisionStack _ x -> x
         CL.Wait _ x -> x
